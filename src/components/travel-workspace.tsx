@@ -2,7 +2,9 @@
 
 import {
   DndContext,
+  DragOverlay,
   DragEndEvent,
+  DragStartEvent,
   KeyboardSensor,
   PointerSensor,
   closestCenter,
@@ -575,7 +577,31 @@ function RoutePlanner({ trip }: { trip: TripDraft }) {
   );
 }
 
-function SortableScheduleCard({ item, onDelete }: { item: ScheduleItem; onDelete: (id: string) => void }) {
+function ScheduleCardPreview({ item }: { item: ScheduleItem }) {
+  return (
+    <article className="schedule-card schedule-card-overlay" aria-hidden="true">
+      <span className="drag-handle">⠿</span>
+      <span className={`category-icon category-${item.category}`}>{CATEGORY_ICON[item.category]}</span>
+      <div className="schedule-card-body">
+        <div className="schedule-card-heading">
+          <span>{item.time || "시간 미정"} · {item.category}</span>
+          <h5>{item.title}</h5>
+        </div>
+        {item.place ? <p>{item.place}</p> : null}
+      </div>
+    </article>
+  );
+}
+
+function SortableScheduleCard({
+  item,
+  onEdit,
+  onDelete,
+}: {
+  item: ScheduleItem;
+  onEdit: (item: ScheduleItem) => void;
+  onDelete: (id: string) => void;
+}) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id });
   const style = { transform: CSS.Transform.toString(transform), transition };
 
@@ -590,7 +616,10 @@ function SortableScheduleCard({ item, onDelete }: { item: ScheduleItem; onDelete
         </div>
         {item.place ? <p>{item.place}</p> : null}
       </div>
-      <button className="icon-button" type="button" onClick={() => onDelete(item.id)} aria-label={`${item.title} 삭제`}>×</button>
+      <div className="schedule-card-actions">
+        <button className="icon-button edit-button" type="button" onClick={() => onEdit(item)} aria-label={`${item.title} 수정`} title="일정 수정">✎</button>
+        <button className="icon-button" type="button" onClick={() => onDelete(item.id)} aria-label={`${item.title} 삭제`} title="일정 삭제">×</button>
+      </div>
     </article>
   );
 }
@@ -601,6 +630,7 @@ function ScheduleDay({
   items,
   collapsed,
   onToggle,
+  onEdit,
   onDelete,
 }: {
   date: string;
@@ -608,6 +638,7 @@ function ScheduleDay({
   items: ScheduleItem[];
   collapsed: boolean;
   onToggle: () => void;
+  onEdit: (item: ScheduleItem) => void;
   onDelete: (id: string) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: `day:${date}` });
@@ -623,7 +654,7 @@ function ScheduleDay({
       {!collapsed ? (
         <SortableContext items={items.map((item) => item.id)} strategy={verticalListSortingStrategy}>
           <div className="schedule-list">
-            {items.length ? items.map((item) => <SortableScheduleCard item={item} onDelete={onDelete} key={item.id} />) : (
+            {items.length ? items.map((item) => <SortableScheduleCard item={item} onEdit={onEdit} onDelete={onDelete} key={item.id} />) : (
               <div className="schedule-empty">이 날짜에 첫 일정을 추가해 보세요.</div>
             )}
           </div>
@@ -643,6 +674,8 @@ function ItineraryPlanner({ trip }: { trip: TripDraft }) {
   const [title, setTitle] = useState("");
   const [place, setPlace] = useState("");
   const [error, setError] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set());
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -659,21 +692,30 @@ function ItineraryPlanner({ trip }: { trip: TripDraft }) {
     window.localStorage.setItem(scheduleKey, JSON.stringify(nextItems));
   }
 
-  function addSchedule(event: FormEvent<HTMLFormElement>) {
+  function saveSchedule(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!title.trim()) {
       setError("일정 이름을 입력해 주세요.");
       return;
     }
+    const existingItem = editingId ? items.find((item) => item.id === editingId) : undefined;
     const item: ScheduleItem = {
-      id: crypto.randomUUID(),
+      id: existingItem?.id ?? crypto.randomUUID(),
       date: selectedDate,
       time,
       category,
       title: title.trim(),
       place: place.trim(),
     };
-    persist([...items, item]);
+    if (existingItem) {
+      const nextItems = existingItem.date === selectedDate
+        ? items.map((current) => current.id === existingItem.id ? item : current)
+        : [...items.filter((current) => current.id !== existingItem.id), item];
+      persist(nextItems);
+    } else {
+      persist([...items, item]);
+    }
+    setEditingId(null);
     setTitle("");
     setPlace("");
     setError("");
@@ -685,7 +727,33 @@ function ItineraryPlanner({ trip }: { trip: TripDraft }) {
   }
 
   function deleteSchedule(id: string) {
+    if (editingId === id) cancelEdit();
     persist(items.filter((item) => item.id !== id));
+  }
+
+  function editSchedule(item: ScheduleItem) {
+    setEditingId(item.id);
+    setSelectedDate(item.date);
+    setTime(item.time);
+    setCategory(item.category);
+    setTitle(item.title);
+    setPlace(item.place);
+    setError("");
+    setCollapsedDays((current) => {
+      const next = new Set(current);
+      next.delete(item.date);
+      return next;
+    });
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLFormElement>(".schedule-form")?.scrollIntoView({ block: "start" });
+    });
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setTitle("");
+    setPlace("");
+    setError("");
   }
 
   function orderedItems(dayItems: Record<string, ScheduleItem[]>) {
@@ -693,6 +761,7 @@ function ItineraryPlanner({ trip }: { trip: TripDraft }) {
   }
 
   function handleDragEnd(event: DragEndEvent) {
+    setActiveItemId(null);
     const { active, over } = event;
     if (!over || active.id === over.id) return;
     const activeItem = items.find((item) => item.id === active.id);
@@ -718,12 +787,16 @@ function ItineraryPlanner({ trip }: { trip: TripDraft }) {
     persist(orderedItems(grouped));
   }
 
+  function handleDragStart(event: DragStartEvent) {
+    setActiveItemId(String(event.active.id));
+  }
+
   return (
     <div className="itinerary-layout">
-      <form className="schedule-form" onSubmit={addSchedule} noValidate>
+      <form className="schedule-form" onSubmit={saveSchedule} noValidate>
         <div className="schedule-form-heading">
-          <span className="step-label">NEW PLAN</span>
-          <h4>일정 추가</h4>
+          <span className="step-label">{editingId ? "EDIT PLAN" : "NEW PLAN"}</span>
+          <h4>{editingId ? "일정 수정" : "일정 추가"}</h4>
         </div>
         <div className="schedule-form-grid">
           <div className="field-group"><label htmlFor="schedule-date">날짜</label><select id="schedule-date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)}>{dates.map((date, index) => <option value={date} key={date}>{formatDay(date, index).day} · {formatDay(date, index).label}</option>)}</select></div>
@@ -733,10 +806,19 @@ function ItineraryPlanner({ trip }: { trip: TripDraft }) {
           <div className="field-group schedule-place-field"><label htmlFor="schedule-place">장소·메모</label><input id="schedule-place" value={place} onChange={(event) => setPlace(event.target.value)} placeholder="주소나 만날 장소" /></div>
         </div>
         {error ? <p className="form-error" role="alert"><span aria-hidden="true">!</span>{error}</p> : null}
-        <button className="primary-button compact" type="submit">일정 추가 <span aria-hidden="true">＋</span></button>
+        <div className="schedule-form-actions">
+          {editingId ? <button className="secondary-button compact" type="button" onClick={cancelEdit}>수정 취소</button> : null}
+          <button className="primary-button compact" type="submit">{editingId ? "수정 저장" : "일정 추가"} <span aria-hidden="true">{editingId ? "✓" : "＋"}</span></button>
+        </div>
       </form>
 
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
+        onDragCancel={() => setActiveItemId(null)}
+        onDragEnd={handleDragEnd}
+      >
         <div className="schedule-days">
           {dates.map((date, index) => (
             <ScheduleDay
@@ -749,11 +831,15 @@ function ItineraryPlanner({ trip }: { trip: TripDraft }) {
                 if (next.has(date)) next.delete(date); else next.add(date);
                 return next;
               })}
+              onEdit={editSchedule}
               onDelete={deleteSchedule}
               key={date}
             />
           ))}
         </div>
+        <DragOverlay dropAnimation={null}>
+          {activeItemId ? <ScheduleCardPreview item={items.find((item) => item.id === activeItemId)!} /> : null}
+        </DragOverlay>
       </DndContext>
     </div>
   );

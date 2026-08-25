@@ -216,6 +216,17 @@ input:focus-visible {
   color: var(--primary-dark);
 }
 
+.sync-message {
+  margin: -14px 0 20px;
+  padding: 10px 12px;
+  border: 1px solid #c6d9d3;
+  border-radius: 12px;
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 .field-group {
   min-width: 0;
   display: grid;
@@ -880,6 +891,7 @@ input:focus-visible {
 
 .schedule-form {
   padding: 20px;
+  scroll-margin-top: 16px;
   border: 1px solid var(--line);
   border-radius: 18px;
   background: #fafaf6;
@@ -957,7 +969,12 @@ input:focus-visible {
   color: var(--ink);
 }
 
-.schedule-form .primary-button { margin-top: 20px; margin-left: auto; }
+.schedule-form-actions {
+  margin-top: 20px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+}
 
 .schedule-days {
   display: grid;
@@ -1039,9 +1056,18 @@ input:focus-visible {
 }
 
 .schedule-card.is-dragging {
-  z-index: 2;
-  opacity: 0.7;
-  box-shadow: 0 13px 26px rgba(37, 61, 55, 0.16);
+  opacity: 0.25;
+}
+
+.schedule-card.schedule-card-overlay {
+  z-index: 1000;
+  width: 100%;
+  box-sizing: border-box;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  border-color: var(--primary);
+  background: var(--surface-strong);
+  box-shadow: 0 18px 38px rgba(37, 61, 55, 0.24);
+  cursor: grabbing;
 }
 
 .drag-handle,
@@ -1059,8 +1085,15 @@ input:focus-visible {
 }
 
 .icon-button { cursor: pointer; font-size: 20px; }
+.edit-button { font-size: 17px; }
 .drag-handle:hover,
 .icon-button:hover { background: #eef2ef; color: var(--ink); }
+
+.schedule-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
 
 .category-icon {
   width: 34px;
