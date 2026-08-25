@@ -18,29 +18,55 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { FormEvent, useEffect, useId, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useId, useMemo, useState } from "react";
 import type { TripDraft } from "@/components/trip-planner";
 import { LocalInfoTools, ShinkansenTools } from "@/components/trip-tools";
+import airportDataset from "@/data/airports.json";
+import { buildSkyscannerSearches, parseSkyscannerLink, type SavedFlightSearch } from "@/lib/skyscanner-links";
 
-const AIRPORTS = [
-  { code: "ICN", name: "인천국제공항", city: "서울" },
-  { code: "GMP", name: "김포국제공항", city: "서울" },
-  { code: "PUS", name: "김해국제공항", city: "부산" },
-  { code: "CJU", name: "제주국제공항", city: "제주" },
-  { code: "NRT", name: "나리타국제공항", city: "도쿄" },
-  { code: "HND", name: "하네다공항", city: "도쿄" },
-  { code: "KIX", name: "간사이국제공항", city: "오사카" },
-  { code: "ITM", name: "오사카국제공항", city: "오사카" },
-  { code: "NGO", name: "주부국제공항", city: "나고야" },
-  { code: "FSZ", name: "후지산 시즈오카공항", city: "시즈오카" },
-  { code: "FUK", name: "후쿠오카공항", city: "후쿠오카" },
-  { code: "CTS", name: "신치토세공항", city: "삿포로" },
-  { code: "OKA", name: "나하공항", city: "오키나와" },
-];
+type Airport = (typeof airportDataset.airports)[number];
 
-const AIRPORT_OPTIONS = AIRPORTS.map(
-  (airport) => `${airport.code} — ${airport.name} (${airport.city})`,
-);
+function normalizeAirportQuery(value: string) {
+  return value
+    .normalize("NFKD")
+    .toLocaleLowerCase("ko-KR")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+const AIRPORTS = airportDataset.airports;
+const AIRPORT_BY_CODE = new Map(AIRPORTS.map((airport) => [airport.code, airport]));
+const SEARCHABLE_AIRPORTS = AIRPORTS.map((airport) => ({
+  airport,
+  terms: [airport.name, airport.city, ...airport.aliases, ...airport.keywords]
+    .map(normalizeAirportQuery)
+    .filter(Boolean),
+}));
+
+function airportDisplay(airport: Airport) {
+  return `${airport.code} — ${airport.name}${airport.city ? ` (${airport.city})` : ""}`;
+}
+
+function searchAirports(value: string, limit = 8) {
+  const query = normalizeAirportQuery(value);
+  if (query.length < 2) return [];
+
+  return SEARCHABLE_AIRPORTS
+    .map(({ airport, terms }) => {
+      const normalizedCode = airport.code.toLocaleLowerCase("ko-KR");
+      let rank = Number.POSITIVE_INFINITY;
+      if (normalizedCode === query) rank = 0;
+      else if (normalizedCode.startsWith(query)) rank = 1;
+      else if (terms.some((term) => term === query)) rank = 2;
+      else if (terms.some((term) => term.startsWith(query))) rank = 3;
+      else if (terms.some((term) => term.includes(query))) rank = 4;
+      return { airport, rank };
+    })
+    .filter(({ rank }) => Number.isFinite(rank))
+    .sort((left, right) => left.rank - right.rank || left.airport.code.localeCompare(right.airport.code))
+    .slice(0, limit)
+    .map(({ airport }) => airport);
+}
 
 type RoutePlan = {
   outboundOrigin: string;
@@ -85,6 +111,10 @@ function routeStorageKey(trip: TripDraft) {
   return `travel-planner:route:${trip.name}`;
 }
 
+function flightSearchStorageKey(trip: TripDraft) {
+  return `travel-planner:flight-search:${trip.name}`;
+}
+
 function readStoredValue<T>(key: string, fallback: T): T {
   try {
     const value = window.localStorage.getItem(key);
@@ -119,19 +149,17 @@ function formatDay(date: string, index: number) {
 }
 
 function airportCode(value: string) {
-  const query = value.trim().toLocaleLowerCase("ko-KR");
-  const prefixedCode = query.slice(0, 3).toUpperCase();
-  if (AIRPORTS.some((airport) => airport.code === prefixedCode)) return prefixedCode;
+  const codeMatch = value.trim().match(/^([A-Za-z]{3})(?:\s|—|$)/);
+  const code = codeMatch?.[1].toUpperCase();
+  if (code && AIRPORT_BY_CODE.has(code)) return code;
 
-  const matches = AIRPORTS.filter((airport) =>
-    airport.name.toLocaleLowerCase("ko-KR").includes(query) ||
-    airport.city.toLocaleLowerCase("ko-KR").includes(query),
-  );
-  return query && matches.length === 1 ? matches[0].code : "";
+  const query = normalizeAirportQuery(value);
+  const matches = SEARCHABLE_AIRPORTS.filter(({ terms }) => terms.some((term) => term === query));
+  return query && matches.length === 1 ? matches[0].airport.code : "";
 }
 
 function airportLabel(code: string) {
-  const airport = AIRPORTS.find((candidate) => candidate.code === code);
+  const airport = AIRPORT_BY_CODE.get(code);
   return airport ? `${airport.code} · ${airport.city}` : code;
 }
 
@@ -146,18 +174,250 @@ function AirportField({
   value: string;
   onChange: (value: string) => void;
 }) {
+  const [focused, setFocused] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const suggestions = useMemo(() => searchAirports(value), [value]);
+  const suggestionsId = `${id}-suggestions`;
+  const showSuggestions = focused && normalizeAirportQuery(value).length >= 2;
+
+  function selectAirport(airport: Airport) {
+    onChange(airportDisplay(airport));
+    setFocused(false);
+    setActiveIndex(0);
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (!showSuggestions || suggestions.length === 0) return;
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveIndex((current) => (current + 1) % suggestions.length);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveIndex((current) => (current - 1 + suggestions.length) % suggestions.length);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      selectAirport(suggestions[activeIndex] ?? suggestions[0]);
+    } else if (event.key === "Escape") {
+      setFocused(false);
+    }
+  }
+
   return (
     <div className="field-group airport-field">
       <label htmlFor={id}>{label}</label>
       <input
         id={id}
-        list="airport-options"
         value={value}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={(event) => {
+          onChange(event.target.value);
+          setFocused(true);
+          setActiveIndex(0);
+        }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        onKeyDown={handleKeyDown}
         placeholder="공항명 또는 코드"
         autoComplete="off"
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={showSuggestions}
+        aria-controls={suggestionsId}
+        aria-activedescendant={showSuggestions && suggestions[activeIndex] ? `${suggestionsId}-${suggestions[activeIndex].code}` : undefined}
       />
+      {showSuggestions ? (
+        <div className="airport-suggestions" id={suggestionsId} role="listbox" aria-label={`${label} 검색 결과`}>
+          {suggestions.length ? suggestions.map((airport, index) => (
+            <button
+              className={index === activeIndex ? "is-active" : undefined}
+              id={`${suggestionsId}-${airport.code}`}
+              key={airport.code}
+              type="button"
+              role="option"
+              aria-selected={index === activeIndex}
+              onMouseDown={(event) => event.preventDefault()}
+              onMouseEnter={() => setActiveIndex(index)}
+              onClick={() => selectAirport(airport)}
+            >
+              <strong>{airport.code}</strong>
+              <span><b>{airport.name}</b>{airport.city ? ` · ${airport.city}` : ""}</span>
+              <small>{airport.country}</small>
+            </button>
+          )) : <p>검색 결과가 없습니다.</p>}
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function FlightSearchPanel({ trip, route }: { trip: TripDraft; route: RoutePlan }) {
+  const savedKey = flightSearchStorageKey(trip);
+  const [adults, setAdults] = useState(1);
+  const [nonStopOnly, setNonStopOnly] = useState(true);
+  const [link, setLink] = useState("");
+  const [savedSearches, setSavedSearches] = useState<SavedFlightSearch[]>([]);
+  const [error, setError] = useState("");
+  const [importing, setImporting] = useState(false);
+  const generatedSearches = useMemo(() => buildSkyscannerSearches(trip, route, adults, nonStopOnly), [adults, nonStopOnly, route, trip]);
+
+  function searchMatchesCurrent(search: SavedFlightSearch) {
+    if (search.kind === "roundTrip") {
+      return search.departureDate === trip.startDate
+        && search.returnDate === trip.endDate
+        && search.outboundOrigin === route.outboundOrigin
+        && search.outboundDestination === route.outboundDestination
+        && search.returnOrigin === route.returnOrigin
+        && search.returnDestination === route.returnDestination;
+    }
+    return generatedSearches.some((generated) => !generated.returnDate
+      && search.departureDate === generated.departureDate
+      && search.outboundOrigin === generated.origin
+      && search.outboundDestination === generated.destination);
+  }
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      const stored = readStoredValue<SavedFlightSearch[] | SavedFlightSearch | null>(savedKey, null);
+      const legacySearches = stored ? (Array.isArray(stored) ? stored : [stored]) : [];
+      const restored = legacySearches.map((search) => ({
+        ...search,
+        kind: search.kind || (search.returnDate
+          ? (search.returnOrigin === search.outboundDestination && search.returnDestination === search.outboundOrigin ? "roundTrip" : "multiCity")
+          : "oneWay"),
+      } satisfies SavedFlightSearch));
+      setSavedSearches(restored);
+      if (restored[0]) {
+        setAdults(restored[0].adults);
+        setNonStopOnly(restored[0].nonStopOnly);
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [savedKey]);
+
+  async function importLink(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setImporting(true);
+    try {
+      let resultLink = link;
+      let enteredUrl: URL;
+      try {
+        enteredUrl = new URL(link.trim());
+      } catch {
+        throw new Error("http 또는 https로 시작하는 전체 링크를 붙여 넣어 주세요.");
+      }
+      if (enteredUrl.hostname.toLowerCase() === "skyscanner.app.link") {
+        const response = await fetch("/api/skyscanner/resolve", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: enteredUrl.toString() }),
+        });
+        const payload = (await response.json()) as { url?: string; error?: string };
+        if (!response.ok || !payload.url) throw new Error(payload.error ?? "앱 공유 링크를 불러오지 못했습니다.");
+        resultLink = payload.url;
+      }
+
+      const parsed = parseSkyscannerLink(resultLink);
+      const next: SavedFlightSearch = { ...parsed, provider: "Skyscanner", importedAt: new Date().toISOString() };
+      const nextSearches = [
+        ...savedSearches.filter((saved) => !(saved.kind === next.kind
+          && saved.outboundOrigin === next.outboundOrigin
+          && saved.outboundDestination === next.outboundDestination
+          && saved.departureDate === next.departureDate)),
+        next,
+      ];
+      setSavedSearches(nextSearches);
+      setAdults(next.adults);
+      setNonStopOnly(next.nonStopOnly);
+      setLink("");
+      setError("");
+      window.localStorage.setItem(savedKey, JSON.stringify(nextSearches));
+    } catch (linkError) {
+      setError(linkError instanceof Error ? linkError.message : "링크를 가져오지 못했습니다.");
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  function clearSavedSearch(search: SavedFlightSearch) {
+    const nextSearches = savedSearches.filter((saved) => saved !== search);
+    setSavedSearches(nextSearches);
+    if (nextSearches.length) window.localStorage.setItem(savedKey, JSON.stringify(nextSearches));
+    else window.localStorage.removeItem(savedKey);
+  }
+
+  return (
+    <section className="flight-search-panel" aria-labelledby="flight-search-heading">
+      <div className="flight-search-heading">
+        <div>
+          <span className="step-label">EXTERNAL SEARCH</span>
+          <h4 id="flight-search-heading">Skyscanner 최저가 검색</h4>
+        </div>
+        <span className="environment-badge environment-production">API 키 불필요</span>
+      </div>
+
+      <div className="flight-search-form">
+        <label>
+          <span>성인 인원</span>
+          <select value={adults} onChange={(event) => setAdults(Number(event.target.value))}>
+            {Array.from({ length: 9 }, (_, index) => <option value={index + 1} key={index + 1}>{index + 1}명</option>)}
+          </select>
+        </label>
+        <label className="nonstop-option">
+          <input type="checkbox" checked={nonStopOnly} onChange={(event) => setNonStopOnly(event.target.checked)} />
+          <span><strong>직항 우선</strong><small>각 검색에 적용</small></span>
+        </label>
+      </div>
+
+      <div className={`flight-search-links ${generatedSearches.length > 1 ? "is-split" : ""}`}>
+        {generatedSearches.map((search) => (
+          <article key={search.key}>
+            <div>
+              <span>{search.label}</span>
+              <strong>{search.origin} → {search.destination}</strong>
+              <small>{search.departureDate}{search.returnDate ? ` ~ ${search.returnDate}` : " · 편도"}</small>
+            </div>
+            <a className="primary-button compact external-search-button" href={search.url} target="_blank" rel="noreferrer">
+              검색 열기 <span aria-hidden="true">↗</span>
+            </a>
+          </article>
+        ))}
+      </div>
+
+      <ol className="flight-search-steps">
+        <li><span>1</span>공항이 서로 다르면 가는 편과 오는 편을 각각 열어 두 번 검색합니다.</li>
+        <li><span>2</span>웹 결과 주소나 Skyscanner 앱의 공유 링크를 복사합니다.</li>
+        <li><span>3</span>아래에 붙여 넣어 검색 조건과 결과 페이지를 여행에 저장합니다.</li>
+      </ol>
+
+      <form className="flight-link-form" onSubmit={importLink} noValidate>
+        <label htmlFor="skyscanner-result-link">Skyscanner 결과 페이지 또는 앱 공유 링크</label>
+        <div>
+          <input id="skyscanner-result-link" type="url" value={link} onChange={(event) => { setLink(event.target.value); setError(""); }} placeholder="https://www.skyscanner.co.kr/transport/flights/..." inputMode="url" autoCapitalize="none" autoCorrect="off" />
+          <button className="secondary-button compact" type="submit" disabled={importing}>{importing ? "링크 확인 중…" : "링크 가져오기"}</button>
+        </div>
+      </form>
+
+      {error ? <p className="form-error" role="alert"><span aria-hidden="true">!</span>{error}</p> : null}
+      {savedSearches.map((savedSearch) => {
+        const matchesCurrent = searchMatchesCurrent(savedSearch);
+        const isOneWay = savedSearch.kind === "oneWay" || !savedSearch.returnDate;
+        return (
+          <article className={`saved-flight-search ${matchesCurrent ? "" : "is-stale"}`} key={`${savedSearch.url}-${savedSearch.importedAt}`}>
+            <div>
+              <span>{matchesCurrent ? "저장된 검색 결과 페이지" : "이전 조건의 검색 결과 페이지"}</span>
+              <strong>{savedSearch.outboundOrigin} → {savedSearch.outboundDestination}{isOneWay ? " · 편도" : ` · ${savedSearch.returnOrigin} → ${savedSearch.returnDestination}`}</strong>
+              <small>{savedSearch.departureDate}{savedSearch.returnDate ? ` ~ ${savedSearch.returnDate}` : ""} · 성인 {savedSearch.adults}명{savedSearch.nonStopOnly ? " · 직항" : ""}</small>
+              {!matchesCurrent ? <small className="selection-warning">현재 날짜 또는 항공 구간과 다릅니다. 새 조건으로 다시 검색해 주세요.</small> : null}
+            </div>
+            <div>
+              <a className="secondary-button compact" href={savedSearch.url} target="_blank" rel="noreferrer">결과 다시 열기</a>
+              <button className="text-button" type="button" onClick={() => clearSavedSearch(savedSearch)}>삭제</button>
+            </div>
+          </article>
+        );
+      })}
+      <p className="flight-disclaimer">결과 링크에는 검색 조건만 들어 있으며 개별 항공편·가격 목록은 포함되지 않습니다. 다음 단계에서 선택 항공편을 텍스트나 화면 공유로 가져오는 기능을 추가할 예정입니다.</p>
+    </section>
   );
 }
 
@@ -264,20 +524,14 @@ function RoutePlanner({ trip }: { trip: TripDraft }) {
           <button className="secondary-button compact" type="button" onClick={editRoute}>
             구간 수정
           </button>
-          <button className="primary-button compact" type="button" disabled title="항공 API 연결 후 활성화됩니다">
-            최저가 검색 준비 중
-          </button>
         </div>
+        <FlightSearchPanel trip={trip} route={route} />
       </div>
     );
   }
 
   return (
     <form className="route-form" onSubmit={confirmRoute} noValidate>
-      <datalist id="airport-options">
-        {AIRPORT_OPTIONS.map((option) => <option value={option} key={option} />)}
-      </datalist>
-
       <div className="route-leg">
         <div className="route-leg-heading">
           <div>
@@ -314,6 +568,9 @@ function RoutePlanner({ trip }: { trip: TripDraft }) {
 
       {error ? <p className="form-error" role="alert"><span aria-hidden="true">!</span>{error}</p> : null}
       <button className="primary-button" type="submit">항공 구간 확정하기 <span aria-hidden="true">→</span></button>
+      <p className="airport-data-note">
+        <a href={airportDataset.meta.source} target="_blank" rel="noreferrer">OurAirports</a> 공항 데이터 · {airportDataset.meta.count.toLocaleString("ko-KR")}개
+      </p>
     </form>
   );
 }
@@ -504,20 +761,50 @@ function ItineraryPlanner({ trip }: { trip: TripDraft }) {
 
 export function TravelWorkspace({ trip }: { trip: TripDraft }) {
   const [tab, setTab] = useState<"route" | "schedule" | "local" | "train">("route");
+  const [mobileSection, setMobileSection] = useState<"trip" | "route" | "schedule">("route");
+
+  function changeTab(nextTab: "route" | "schedule" | "local" | "train") {
+    setTab(nextTab);
+    if (nextTab === "route" || nextTab === "schedule") setMobileSection(nextTab);
+  }
+
+  function navigateMobile(target: "trip" | "route" | "schedule") {
+    setMobileSection(target);
+    if (target === "trip") {
+      document.getElementById("main-content")?.scrollIntoView({ block: "start" });
+      return;
+    }
+    setTab(target);
+    window.requestAnimationFrame(() => document.getElementById("travel-workspace")?.scrollIntoView({ block: "start" }));
+  }
 
   return (
-    <section className="workspace-card" aria-labelledby="workspace-title">
-      <div className="workspace-heading">
-        <div><span className="eyebrow">BUILD YOUR TRIP</span><h2 id="workspace-title">여행 채우기</h2></div>
-        <span className="workspace-trip-name">{trip.name}</span>
-      </div>
-      <div className="workspace-tabs" role="tablist" aria-label="여행 계획 메뉴">
-        <button role="tab" aria-selected={tab === "route"} className={tab === "route" ? "is-active" : ""} onClick={() => setTab("route")}>항공 구간</button>
-        <button role="tab" aria-selected={tab === "schedule"} className={tab === "schedule" ? "is-active" : ""} onClick={() => setTab("schedule")}>날짜별 일정</button>
-        <button role="tab" aria-selected={tab === "local"} className={tab === "local" ? "is-active" : ""} onClick={() => setTab("local")}>현지 정보</button>
-        <button role="tab" aria-selected={tab === "train"} className={tab === "train" ? "is-active" : ""} onClick={() => setTab("train")}>신칸센</button>
-      </div>
-      <div role="tabpanel">{tab === "route" ? <RoutePlanner trip={trip} /> : tab === "schedule" ? <ItineraryPlanner trip={trip} /> : tab === "local" ? <LocalInfoTools trip={trip} /> : <ShinkansenTools trip={trip} />}</div>
-    </section>
+    <>
+      <section className="workspace-card" id="travel-workspace" aria-labelledby="workspace-title">
+        <div className="workspace-heading">
+          <div><span className="eyebrow">BUILD YOUR TRIP</span><h2 id="workspace-title">여행 채우기</h2></div>
+          <span className="workspace-trip-name">{trip.name}</span>
+        </div>
+        <div className="workspace-tabs" role="tablist" aria-label="여행 계획 메뉴">
+          <button role="tab" aria-selected={tab === "route"} aria-controls="workspace-panel" className={tab === "route" ? "is-active" : ""} onClick={() => changeTab("route")}>항공 구간</button>
+          <button role="tab" aria-selected={tab === "schedule"} aria-controls="workspace-panel" className={tab === "schedule" ? "is-active" : ""} onClick={() => changeTab("schedule")}>날짜별 일정</button>
+          <button role="tab" aria-selected={tab === "local"} aria-controls="workspace-panel" className={tab === "local" ? "is-active" : ""} onClick={() => changeTab("local")}>현지 정보</button>
+          <button role="tab" aria-selected={tab === "train"} aria-controls="workspace-panel" className={tab === "train" ? "is-active" : ""} onClick={() => changeTab("train")}>신칸센</button>
+        </div>
+        <div id="workspace-panel" role="tabpanel">{tab === "route" ? <RoutePlanner trip={trip} /> : tab === "schedule" ? <ItineraryPlanner trip={trip} /> : tab === "local" ? <LocalInfoTools trip={trip} /> : <ShinkansenTools trip={trip} />}</div>
+      </section>
+
+      <nav className="mobile-nav" aria-label="주요 메뉴">
+        <button className={`mobile-nav-item ${mobileSection === "trip" ? "is-active" : ""}`} type="button" aria-current={mobileSection === "trip" ? "page" : undefined} onClick={() => navigateMobile("trip")}>
+          <span aria-hidden="true">⌂</span>여행
+        </button>
+        <button className={`mobile-nav-item ${mobileSection === "schedule" ? "is-active" : ""}`} type="button" aria-current={mobileSection === "schedule" ? "page" : undefined} onClick={() => navigateMobile("schedule")}>
+          <span aria-hidden="true">◷</span>일정
+        </button>
+        <button className={`mobile-nav-item ${mobileSection === "route" ? "is-active" : ""}`} type="button" aria-current={mobileSection === "route" ? "page" : undefined} onClick={() => navigateMobile("route")}>
+          <span aria-hidden="true">✈</span>항공
+        </button>
+      </nav>
+    </>
   );
 }

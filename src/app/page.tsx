@@ -31,21 +31,6 @@ export default function Home() {
 
         <TripPlanner />
       </div>
-
-      <nav className="mobile-nav" aria-label="주요 메뉴">
-        <a className="mobile-nav-item is-active" href="#main-content" aria-current="page">
-          <span aria-hidden="true">⌂</span>
-          여행
-        </a>
-        <span className="mobile-nav-item is-disabled" aria-disabled="true">
-          <span aria-hidden="true">◷</span>
-          일정
-        </span>
-        <span className="mobile-nav-item is-disabled" aria-disabled="true">
-          <span aria-hidden="true">✈</span>
-          항공
-        </span>
-      </nav>
     </main>
   );
 }
