@@ -1,40 +1,73 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import type { TripDraft } from "@/components/trip-planner";
 import { buildNavitimeSearchUrl, navitimeStationName, SHINKANSEN_STATIONS } from "@/lib/navitime-links";
+import {
+  normalizeLocalInfoData,
+  normalizeTrainPlans,
+  youtubeVideoId,
+  type LocalInfoData,
+  type PlaceSnapshot,
+  type SavedVideo,
+  type SavedWeather,
+  type StoredTripSection,
+  type TrainPlan,
+  type WeatherPayload,
+} from "@/lib/trip-sections";
 
-type SavedVideo = { id: string; videoId: string; title: string; url: string };
-type PlaceResult = { id: number; name: string; region: string; latitude: number; longitude: number };
-type WeatherPayload = { daily?: { time: string[]; weather_code: number[]; temperature_2m_max: number[]; temperature_2m_min: number[]; precipitation_probability_max: number[] } };
-type SavedWeather = { place: PlaceResult; weather: WeatherPayload; fetchedAt: string };
-type TrainPlan = { id: string; date: string; origin: string; destination: string; time: string; searchUrl?: string; train?: string; seat?: string };
+type PlaceResult = PlaceSnapshot;
 
-function key(kind: string, trip: TripDraft) {
+function legacyKey(kind: string, trip: TripDraft) {
   return `travel-planner:${kind}:${trip.name}:${trip.startDate}:${trip.endDate}`;
 }
 
-function load<T>(storageKey: string, fallback: T): T {
+function key(accountId: string, kind: string, trip: TripDraft) {
+  return `travel-planner:${accountId}:${kind}:${trip.name}:${trip.startDate}:${trip.endDate}`;
+}
+
+function migratableLegacyKey(accountId: string, kind: string, trip: TripDraft) {
+  return accountId === "admin" || accountId === "guest1" ? legacyKey(kind, trip) : undefined;
+}
+
+function load<T>(storageKey: string, fallback: T, legacyStorageKey?: string): T {
   try {
-    const value = localStorage.getItem(storageKey);
+    const value = localStorage.getItem(storageKey) ?? (legacyStorageKey ? localStorage.getItem(legacyStorageKey) : null);
+    if (value && !localStorage.getItem(storageKey)) localStorage.setItem(storageKey, value);
     return value ? JSON.parse(value) as T : fallback;
   } catch {
     return fallback;
   }
 }
 
-function youtubeId(value: string) {
+type SectionResponse = { section?: unknown; error?: string };
+type SectionSaveResult<T> =
+  | { status: "saved"; section: StoredTripSection<T> }
+  | { status: "conflict"; section: StoredTripSection<T> }
+  | { status: "error"; message: string };
+
+function normalizeStoredSection<T>(value: unknown, normalize: (data: unknown) => T | null): StoredTripSection<T> | null {
+  if (!value || typeof value !== "object") return null;
+  const input = value as Record<string, unknown>;
+  const data = normalize(input.data);
+  if (!data || !Number.isInteger(input.version) || Number(input.version) < 1 || typeof input.updatedAt !== "string") return null;
+  return { data, version: Number(input.version), updatedAt: input.updatedAt };
+}
+
+async function saveSection<T>(path: string, data: T, version: number, normalize: (data: unknown) => T | null): Promise<SectionSaveResult<T>> {
   try {
-    const url = new URL(value);
-    const host = url.hostname.replace(/^www\./, "");
-    let id = "";
-    if (host === "youtu.be") id = url.pathname.slice(1).split("/")[0];
-    if (host === "youtube.com" || host === "m.youtube.com") {
-      id = url.searchParams.get("v") ?? url.pathname.match(/^\/(?:embed|live|shorts)\/([^/?]+)/)?.[1] ?? "";
-    }
-    return /^[\w-]{11}$/.test(id) ? id : "";
+    const response = await fetch(`/api/trips/current/sections/${path}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data, version }),
+    });
+    const payload = await response.json() as SectionResponse;
+    const section = normalizeStoredSection(payload.section, normalize);
+    if (response.status === 409 && section) return { status: "conflict", section };
+    if (!response.ok || !section) return { status: "error", message: payload.error ?? "서버 저장에 실패했습니다." };
+    return { status: "saved", section };
   } catch {
-    return "";
+    return { status: "error", message: "서버에 연결할 수 없습니다." };
   }
 }
 
@@ -54,9 +87,11 @@ const WEATHER: Record<number, { icon: string; label: string }> = {
   71: { icon: "❄", label: "약한 눈" }, 73: { icon: "❄", label: "눈" }, 75: { icon: "❄", label: "강한 눈" }, 80: { icon: "☂", label: "소나기" }, 95: { icon: "ϟ", label: "뇌우" },
 };
 
-export function LocalInfoTools({ trip }: { trip: TripDraft }) {
-  const videoKey = key("videos", trip);
-  const weatherKey = key("weather", trip);
+export function LocalInfoTools({ accountId, trip }: { accountId: string; trip: TripDraft }) {
+  const videoKey = key(accountId, "videos", trip);
+  const weatherKey = key(accountId, "weather", trip);
+  const videoLegacyKey = migratableLegacyKey(accountId, "videos", trip);
+  const weatherLegacyKey = migratableLegacyKey(accountId, "weather", trip);
   const [videos, setVideos] = useState<SavedVideo[]>([]);
   const [videoFormOpen, setVideoFormOpen] = useState(false);
   const [videoUrl, setVideoUrl] = useState("");
@@ -70,25 +105,126 @@ export function LocalInfoTools({ trip }: { trip: TripDraft }) {
   const [weatherSaved, setWeatherSaved] = useState(false);
   const [weatherNotice, setWeatherNotice] = useState("");
   const [weatherState, setWeatherState] = useState<"idle" | "loading" | "error">("idle");
+  const [sectionVersion, setSectionVersion] = useState(0);
+  const [loadedKey, setLoadedKey] = useState("");
+  const [syncMessage, setSyncMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const localInfoKey = `${videoKey}|${weatherKey}`;
 
   useEffect(() => {
-    const frame = requestAnimationFrame(() => {
-      setVideos(load(videoKey, []));
-      const saved = load<SavedWeather | null>(weatherKey, null);
-      if (saved?.place && saved.weather && saved.fetchedAt) {
-        setSelectedPlace(saved.place);
-        setCityQuery(saved.place.name);
-        setWeather(saved.weather);
-        setWeatherFetchedAt(saved.fetchedAt);
+    let disposed = false;
+    const cached = normalizeLocalInfoData({
+      videos: load(videoKey, [], videoLegacyKey),
+      weather: load<SavedWeather | null>(weatherKey, null, weatherLegacyKey),
+    }) ?? { videos: [], weather: null };
+
+    function applyLocalInfo(data: LocalInfoData, version: number) {
+      setVideos(data.videos);
+      setSectionVersion(version);
+      localStorage.setItem(videoKey, JSON.stringify(data.videos));
+      if (data.weather) {
+        setSelectedPlace(data.weather.place);
+        setCityQuery(data.weather.place.name);
+        setWeather(data.weather.weather);
+        setWeatherFetchedAt(data.weather.fetchedAt);
         setWeatherSaved(true);
+        localStorage.setItem(weatherKey, JSON.stringify(data.weather));
+      } else {
+        setSelectedPlace(null);
+        setWeather(null);
+        setWeatherFetchedAt("");
+        setWeatherSaved(false);
+        localStorage.removeItem(weatherKey);
       }
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [videoKey, weatherKey]);
+    }
+
+    async function restoreLocalInfo() {
+      try {
+        const response = await fetch("/api/trips/current/sections/local-info", { cache: "no-store" });
+        const payload = await response.json() as SectionResponse;
+        if (!response.ok) throw new Error(payload.error);
+        const serverSection = payload.section === null || payload.section === undefined
+          ? null
+          : normalizeStoredSection(payload.section, normalizeLocalInfoData);
+        if (payload.section && !serverSection) throw new Error("서버 현지 정보 형식이 올바르지 않습니다.");
+        if (disposed) return;
+
+        if (serverSection) {
+          applyLocalInfo(serverSection.data, serverSection.version);
+        } else if (cached.videos.length || cached.weather) {
+          const migration = await saveSection("local-info", cached, 0, normalizeLocalInfoData);
+          if (disposed) return;
+          if (migration.status === "saved" || migration.status === "conflict") {
+            applyLocalInfo(migration.section.data, migration.section.version);
+            setSyncMessage(migration.status === "saved" ? "기존 현지 정보를 계정 저장소로 옮겼습니다." : "다른 화면의 최신 현지 정보를 불러왔습니다.");
+          } else {
+            applyLocalInfo(cached, 0);
+            setSyncMessage(`${migration.message} 이 브라우저의 현지 정보는 유지했습니다.`);
+          }
+        } else {
+          applyLocalInfo({ videos: [], weather: null }, 0);
+        }
+      } catch {
+        if (!disposed) {
+          applyLocalInfo(cached, 0);
+          setSyncMessage("서버에 연결하지 못해 이 브라우저의 현지 정보를 표시합니다.");
+        }
+      } finally {
+        if (!disposed) setLoadedKey(localInfoKey);
+      }
+    }
+
+    void restoreLocalInfo();
+    return () => { disposed = true; };
+  }, [localInfoKey, videoKey, videoLegacyKey, weatherKey, weatherLegacyKey]);
+
+  function savedWeatherValue(): SavedWeather | null {
+    return weatherSaved && selectedPlace && weather && weatherFetchedAt
+      ? { place: selectedPlace, weather, fetchedAt: weatherFetchedAt }
+      : null;
+  }
+
+  function applyLocalInfo(data: LocalInfoData, version: number) {
+    setVideos(data.videos);
+    setSectionVersion(version);
+    localStorage.setItem(videoKey, JSON.stringify(data.videos));
+    if (data.weather) {
+      setSelectedPlace(data.weather.place);
+      setCityQuery(data.weather.place.name);
+      setWeather(data.weather.weather);
+      setWeatherFetchedAt(data.weather.fetchedAt);
+      setWeatherSaved(true);
+      localStorage.setItem(weatherKey, JSON.stringify(data.weather));
+    } else {
+      localStorage.removeItem(weatherKey);
+      setWeatherSaved(false);
+    }
+  }
+
+  async function persistLocalInfo(data: LocalInfoData) {
+    if (savingRef.current) return false;
+    savingRef.current = true;
+    setSaving(true);
+    setSyncMessage("");
+    applyLocalInfo(data, sectionVersion);
+    const result = await saveSection("local-info", data, sectionVersion, normalizeLocalInfoData);
+    if (result.status === "saved") {
+      applyLocalInfo(result.section.data, result.section.version);
+      setSyncMessage("현지 정보를 계정 저장소에 저장했습니다.");
+    } else if (result.status === "conflict") {
+      applyLocalInfo(result.section.data, result.section.version);
+      setSyncMessage("다른 화면에서 변경된 최신 현지 정보를 불러왔습니다.");
+    } else {
+      setSyncMessage(`${result.message} 변경 내용은 이 브라우저에 유지했습니다.`);
+    }
+    savingRef.current = false;
+    setSaving(false);
+    return result.status === "saved";
+  }
 
   function saveVideos(next: SavedVideo[]) {
-    setVideos(next);
-    localStorage.setItem(videoKey, JSON.stringify(next));
+    void persistLocalInfo({ videos: next, weather: savedWeatherValue() });
   }
 
   function toggleVideoForm() {
@@ -98,7 +234,7 @@ export function LocalInfoTools({ trip }: { trip: TripDraft }) {
 
   function addVideo(event: FormEvent) {
     event.preventDefault();
-    const id = youtubeId(videoUrl);
+    const id = youtubeVideoId(videoUrl);
     if (!id) {
       setVideoError("올바른 YouTube 영상 또는 라이브 URL을 입력해 주세요.");
       return;
@@ -147,8 +283,7 @@ export function LocalInfoTools({ trip }: { trip: TripDraft }) {
       setWeatherState("idle");
       setPlaces([]);
       if (persist) {
-        localStorage.setItem(weatherKey, JSON.stringify({ place, weather: data, fetchedAt } satisfies SavedWeather));
-        setWeatherSaved(true);
+        await persistLocalInfo({ videos, weather: { place, weather: data, fetchedAt } });
         setWeatherNotice("저장된 날씨를 최신 예보로 업데이트했습니다.");
       } else {
         setWeatherSaved(false);
@@ -161,8 +296,7 @@ export function LocalInfoTools({ trip }: { trip: TripDraft }) {
 
   function saveWeather() {
     if (!selectedPlace || !weather || !weatherFetchedAt) return;
-    localStorage.setItem(weatherKey, JSON.stringify({ place: selectedPlace, weather, fetchedAt: weatherFetchedAt } satisfies SavedWeather));
-    setWeatherSaved(true);
+    void persistLocalInfo({ videos, weather: { place: selectedPlace, weather, fetchedAt: weatherFetchedAt } });
     setWeatherNotice("날씨 정보를 이 여행에 저장했습니다.");
   }
 
@@ -176,6 +310,7 @@ export function LocalInfoTools({ trip }: { trip: TripDraft }) {
 
   return (
     <div className="tools-grid">
+      {loadedKey !== localInfoKey ? <p className="sync-message" role="status">계정에 저장된 현지 정보를 불러오는 중입니다…</p> : syncMessage ? <p className="sync-message" role="status">{syncMessage}</p> : null}
       <section className="tool-section">
         <div className="tool-heading tool-heading-with-action">
           <div><span className="step-label">LIVE VIEW</span><h4>YouTube 현지 영상</h4></div>
@@ -188,14 +323,14 @@ export function LocalInfoTools({ trip }: { trip: TripDraft }) {
             <div className="field-group"><label htmlFor="video-title">영상 이름</label><input id="video-title" value={videoTitle} onChange={(event) => setVideoTitle(event.target.value)} placeholder="예: 교토역 라이브" /></div>
             <div className="field-group"><label htmlFor="video-url">YouTube URL</label><input id="video-url" inputMode="url" value={videoUrl} onChange={(event) => { setVideoUrl(event.target.value); setVideoError(""); }} placeholder="https://youtube.com/watch?v=..." /></div>
             {videoError ? <p className="form-error" role="alert"><span aria-hidden="true">!</span>{videoError}</p> : null}
-            <button className="primary-button compact" type="submit">저장 <span aria-hidden="true">＋</span></button>
+            <button className="primary-button compact" type="submit" disabled={saving}>{saving ? "서버에 저장 중…" : "저장"} <span aria-hidden="true">＋</span></button>
           </form>
         ) : null}
         <div className="video-list">
           {videos.length ? videos.map((video) => (
             <article className="video-card" key={video.id}>
               <div className="video-frame"><iframe src={`https://www.youtube.com/embed/${video.videoId}`} title={video.title} allow="accelerometer; autoplay; encrypted-media; picture-in-picture" allowFullScreen /></div>
-              <div><strong>{video.title}</strong><button type="button" className="text-button" onClick={() => saveVideos(videos.filter((item) => item.id !== video.id))}>삭제</button></div>
+              <div><strong>{video.title}</strong><button type="button" className="text-button" onClick={() => saveVideos(videos.filter((item) => item.id !== video.id))} disabled={saving}>삭제</button></div>
             </article>
           )) : <p className="tool-empty">여행지의 현재 모습을 볼 영상을 추가해 보세요.</p>}
         </div>
@@ -216,7 +351,7 @@ export function LocalInfoTools({ trip }: { trip: TripDraft }) {
             <div className="weather-result-heading">
               <p><strong>{selectedPlace.name}</strong>의 여행 기간 예보<small>{weatherFetchedAt ? `${formatUpdatedAt(weatherFetchedAt)} 확인` : ""}</small></p>
               <div className="weather-actions">
-                <button className="secondary-button compact" type="button" onClick={saveWeather} disabled={weatherSaved}>{weatherSaved ? "저장됨" : "날씨 저장"}</button>
+                <button className="secondary-button compact" type="button" onClick={saveWeather} disabled={weatherSaved || saving}>{weatherSaved ? "저장됨" : saving ? "저장 중…" : "날씨 저장"}</button>
                 <button className="secondary-button compact" type="button" onClick={() => void requestWeather(selectedPlace, weatherSaved)} disabled={weatherState === "loading"}>새로고침</button>
               </div>
             </div>
@@ -229,24 +364,96 @@ export function LocalInfoTools({ trip }: { trip: TripDraft }) {
   );
 }
 
-export function ShinkansenTools({ trip }: { trip: TripDraft }) {
-  const trainKey = key("trains", trip);
+export function ShinkansenTools({ accountId, trip }: { accountId: string; trip: TripDraft }) {
+  const trainKey = key(accountId, "trains", trip);
+  const trainLegacyKey = migratableLegacyKey(accountId, "trains", trip);
   const [plans, setPlans] = useState<TrainPlan[]>([]);
   const [date, setDate] = useState(trip.startDate);
   const [originId, setOriginId] = useState("");
   const [destinationId, setDestinationId] = useState("");
   const [time, setTime] = useState("");
   const [error, setError] = useState("");
+  const [sectionVersion, setSectionVersion] = useState(0);
+  const [loadedKey, setLoadedKey] = useState("");
+  const [syncMessage, setSyncMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const searchUrl = buildNavitimeSearchUrl(originId, destinationId, date, time);
 
   useEffect(() => {
-    const frame = requestAnimationFrame(() => setPlans(load(trainKey, [])));
-    return () => cancelAnimationFrame(frame);
-  }, [trainKey]);
+    let disposed = false;
+    const cached = normalizeTrainPlans(load(trainKey, [], trainLegacyKey)) ?? [];
 
-  function save(next: TrainPlan[]) {
+    function applyPlans(next: TrainPlan[], version: number) {
+      setPlans(next);
+      setSectionVersion(version);
+      localStorage.setItem(trainKey, JSON.stringify(next));
+    }
+
+    async function restorePlans() {
+      try {
+        const response = await fetch("/api/trips/current/sections/train", { cache: "no-store" });
+        const payload = await response.json() as SectionResponse;
+        if (!response.ok) throw new Error(payload.error);
+        const serverSection = payload.section === null || payload.section === undefined
+          ? null
+          : normalizeStoredSection(payload.section, normalizeTrainPlans);
+        if (payload.section && !serverSection) throw new Error("서버 열차 계획 형식이 올바르지 않습니다.");
+        if (disposed) return;
+
+        if (serverSection) {
+          applyPlans(serverSection.data, serverSection.version);
+        } else if (cached.length) {
+          const migration = await saveSection("train", cached, 0, normalizeTrainPlans);
+          if (disposed) return;
+          if (migration.status === "saved" || migration.status === "conflict") {
+            applyPlans(migration.section.data, migration.section.version);
+            setSyncMessage(migration.status === "saved" ? "기존 열차 계획을 계정 저장소로 옮겼습니다." : "다른 화면의 최신 열차 계획을 불러왔습니다.");
+          } else {
+            applyPlans(cached, 0);
+            setSyncMessage(`${migration.message} 이 브라우저의 열차 계획은 유지했습니다.`);
+          }
+        } else {
+          applyPlans([], 0);
+        }
+      } catch {
+        if (!disposed) {
+          applyPlans(cached, 0);
+          setSyncMessage("서버에 연결하지 못해 이 브라우저의 열차 계획을 표시합니다.");
+        }
+      } finally {
+        if (!disposed) setLoadedKey(trainKey);
+      }
+    }
+
+    void restorePlans();
+    return () => { disposed = true; };
+  }, [trainKey, trainLegacyKey]);
+
+  function applyPlans(next: TrainPlan[], version: number) {
     setPlans(next);
+    setSectionVersion(version);
     localStorage.setItem(trainKey, JSON.stringify(next));
+  }
+
+  async function save(next: TrainPlan[]) {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    setSyncMessage("");
+    applyPlans(next, sectionVersion);
+    const result = await saveSection("train", next, sectionVersion, normalizeTrainPlans);
+    if (result.status === "saved") {
+      applyPlans(result.section.data, result.section.version);
+      setSyncMessage("열차 계획을 계정 저장소에 저장했습니다.");
+    } else if (result.status === "conflict") {
+      applyPlans(result.section.data, result.section.version);
+      setSyncMessage("다른 화면에서 변경된 최신 열차 계획을 불러왔습니다.");
+    } else {
+      setSyncMessage(`${result.message} 변경 내용은 이 브라우저에 유지했습니다.`);
+    }
+    savingRef.current = false;
+    setSaving(false);
   }
 
   function add(event: FormEvent) {
@@ -257,12 +464,13 @@ export function ShinkansenTools({ trip }: { trip: TripDraft }) {
       setError("서로 다른 출발역과 도착역, 탑승일과 시간을 모두 선택해 주세요.");
       return;
     }
-    save([...plans, { id: crypto.randomUUID(), date, origin, destination, time, searchUrl }]);
+    void save([...plans, { id: crypto.randomUUID(), date, origin, destination, time, searchUrl }]);
     setError("");
   }
 
   return (
     <div className="train-layout">
+      {loadedKey !== trainKey ? <p className="sync-message" role="status">계정에 저장된 열차 계획을 불러오는 중입니다…</p> : syncMessage ? <p className="sync-message" role="status">{syncMessage}</p> : null}
       <section className="tool-section">
         <div className="tool-heading"><span className="step-label">SHINKANSEN</span><h4>신칸센 좌석 계획</h4></div>
         <p className="tool-description">역과 탑승 시간을 선택하면 NAVITIME에서 해당 조건의 열차·시간표·요금을 바로 검색할 수 있습니다.</p>
@@ -273,11 +481,11 @@ export function ShinkansenTools({ trip }: { trip: TripDraft }) {
           <div className="field-group train-station-field"><label htmlFor="train-destination">도착역</label><select id="train-destination" value={destinationId} onChange={(event) => { setDestinationId(event.target.value); setError(""); }}><option value="">도착역 선택</option>{SHINKANSEN_STATIONS.map((station) => <option value={station.id} key={station.id}>{station.name} · {station.region}</option>)}</select></div>
           {error ? <p className="form-error" role="alert"><span aria-hidden="true">!</span>{error}</p> : null}
           <p className="train-provider-note">계획을 저장하면 동일한 조건의 NAVITIME 검색 링크도 함께 저장됩니다.</p>
-          <div className="train-actions">{searchUrl ? <a className="secondary-link" href={searchUrl} target="_blank" rel="noreferrer">NAVITIME에서 검색 ↗</a> : <span className="secondary-link is-disabled" aria-disabled="true">역·날짜·시간을 선택하세요</span>}<button className="primary-button compact" type="submit">계획 저장 <span aria-hidden="true">＋</span></button></div>
+          <div className="train-actions">{searchUrl ? <a className="secondary-link" href={searchUrl} target="_blank" rel="noreferrer">NAVITIME에서 검색 ↗</a> : <span className="secondary-link is-disabled" aria-disabled="true">역·날짜·시간을 선택하세요</span>}<button className="primary-button compact" type="submit" disabled={saving}>{saving ? "서버에 저장 중…" : "계획 저장"} <span aria-hidden="true">＋</span></button></div>
         </form>
       </section>
       <section className="train-plans">
-        {plans.length ? plans.map((plan) => <article className="train-card" key={plan.id}><div><time>{plan.date} {plan.time}</time><strong>{plan.origin} <span>→</span> {plan.destination}</strong><p>{[plan.train, plan.seat].filter(Boolean).join(" · ") || "NAVITIME 검색 조건 저장됨"}</p></div><div className="train-card-actions">{plan.searchUrl ? <a className="train-result-link" href={plan.searchUrl} target="_blank" rel="noreferrer">다시 검색</a> : null}<button className="icon-button" type="button" aria-label={`${plan.origin}에서 ${plan.destination} 계획 삭제`} onClick={() => save(plans.filter((item) => item.id !== plan.id))}>×</button></div></article>) : <p className="tool-empty">저장된 신칸센 계획이 없습니다.</p>}
+        {plans.length ? plans.map((plan) => <article className="train-card" key={plan.id}><div><time>{plan.date} {plan.time}</time><strong>{plan.origin} <span>→</span> {plan.destination}</strong><p>NAVITIME 검색 조건 저장됨</p></div><div className="train-card-actions">{plan.searchUrl ? <a className="train-result-link" href={plan.searchUrl} target="_blank" rel="noreferrer">다시 검색</a> : null}<button className="icon-button" type="button" aria-label={`${plan.origin}에서 ${plan.destination} 계획 삭제`} onClick={() => void save(plans.filter((item) => item.id !== plan.id))} disabled={saving}>×</button></div></article>) : <p className="tool-empty">저장된 신칸센 계획이 없습니다.</p>}
       </section>
     </div>
   );

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isAuthenticatedRequest } from "@/lib/auth-server";
 
 const SHARED_LINK_HOST = "skyscanner.app.link";
 const LANDING_HOST = "appipv4.link";
@@ -10,6 +11,7 @@ function isSkyscannerHost(hostname: string) {
 }
 
 export async function POST(request: NextRequest) {
+  if (!await isAuthenticatedRequest(request)) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
   let sharedUrl: URL;
   try {
     const payload = (await request.json()) as { url?: unknown };

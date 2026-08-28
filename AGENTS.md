@@ -1,99 +1,75 @@
-# webapp_travel_schedule working agreement
+# webapp_travel 작업 규칙
 
-This repository is a Windows-first web application project. Treat the user's requested outcome as the source of truth and complete it end to end.
+Windows-first Next.js App Router 프로젝트다. TypeScript strict 모드와 pnpm을 사용한다.
 
-## Intent and scope
+- 페이지와 API route: `src/app`
+- 공용 UI 컴포넌트: `src/components`
+- 명령은 `package.json`에 정의된 pnpm 스크립트를 사용한다.
 
-- For build, change, or fix requests: inspect, implement, verify, and manually exercise the changed surface.
-- For review, explanation, or diagnosis requests: inspect and report; do not edit unless the user also asks for a change.
-- For plan-only requests: produce a decision-complete plan and stop before editing product code.
-- Preserve existing user changes. Do not rewrite unrelated files or broaden the feature without a blocking reason.
-- Prefer the smallest correct change over speculative abstractions or dependency additions.
+## 작업 원칙
 
-## Windows environment
+- 사용자가 요청한 결과를 기준으로 작업을 끝까지 수행한다.
+- 구현·수정 요청은 관련 코드를 조사하고, 필요한 경우 짧게 계획한 뒤 구현·검증한다.
+- 리뷰·설명·진단 요청에서는 명시적으로 요청받지 않는 한 파일을 수정하지 않는다.
+- 계획만 요청받은 경우 구현하지 않는다.
+- 기존 사용자 변경과 관련 없는 파일을 건드리지 않는다.
+- 가장 작고 직접적인 해결책을 우선하며 불필요한 추상화나 의존성을 추가하지 않는다.
+- 프로덕션 의존성 추가, 비밀값 변경, 데이터 삭제, 외부 배포 전에는 사용자 승인을 받는다.
 
-- Use native PowerShell commands on Windows unless the repository explicitly requires another shell.
-- Quote paths and use `-LiteralPath` for filesystem operations when practical.
-- Never use WSL paths or assume Unix-only utilities are installed.
-- Do not install global tools when a project-local or `npx`/package-manager invocation is sufficient.
-- Ask before adding a production dependency, changing secrets, deleting data, or making an external deployment.
+## Windows 환경
 
-## Repository discovery
+- PowerShell을 기본 셸로 사용한다.
+- 경로는 인용하고 파일 작업에는 가능한 경우 `-LiteralPath`를 사용한다.
+- 전역 도구를 설치하지 말고 프로젝트 로컬 도구나 pnpm 명령을 사용한다.
 
-Before editing:
+## 검증
 
-1. Read the nearest `AGENTS.md` or `AGENTS.override.md` files that apply.
-2. Inspect the relevant source, tests, configuration, and existing scripts.
-3. Identify the package manager from the lockfile:
-   - `pnpm-lock.yaml` → `pnpm`
-   - `yarn.lock` → `yarn`
-   - `bun.lock` or `bun.lockb` → `bun`
-   - `package-lock.json` → `npm`
-4. Use scripts already defined in `package.json`; do not invent a command when the repository exposes a canonical one.
-5. For work spanning multiple files or involving uncertainty, state a short plan before implementation.
+코드 변경 후 적용 가능한 검증을 다음 순서로 실행한다.
 
-## Delivery loop
+1. `pnpm lint`
+2. `pnpm typecheck`
+3. 관련 테스트 — `package.json`에 테스트 스크립트가 있을 때
+4. `pnpm build`
 
-For every implementation request, follow this loop until the requested behavior is proven or a genuine blocker requires the user:
+실패한 검사는 원인을 수정한 후 다시 실행한다. 테스트를 통과시키기 위해 기존 검사를 삭제하거나 약화하지 않는다.
 
-1. **Explore** — locate the behavior, dependencies, tests, and user-facing surface.
-2. **Plan** — name the files and observable outcomes for multi-step work.
-3. **Implement** — make a focused change that follows existing patterns.
-4. **Verify** — run the applicable checks in this order when they exist:
-   - formatter or formatting check
-   - lint
-   - typecheck
-   - targeted tests
-   - full relevant test suite
-   - production build
-5. **Manual QA** — exercise the real changed surface, not only unit tests.
-6. **Review** — inspect the final diff for regressions, security, accessibility, performance, and accidental scope.
-7. **Report** — lead with the outcome and cite the commands or scenarios that passed.
+UI 변경은 실제 앱에서 다음을 확인한다.
 
-When a check fails, diagnose the cause, fix the root issue, and rerun the smallest affected check. Run one final complete applicable verification pass after the inputs change. Never disable, delete, or weaken a failing test merely to obtain a green result.
+- 기본 사용자 시나리오와 중요한 오류 또는 경계 시나리오
+- 키보드 조작, 접근 가능한 이름, visible focus
+- 약 375px, 768px, 데스크톱 화면
+- loading, empty, error, success 상태 중 도달 가능한 상태
 
-## Web application quality bar
+API 변경은 정상 요청과 잘못된 입력을 각각 확인한다. 앱을 실행할 수 없다면 정확한 원인과 대신 수행한 검증을 보고한다.
 
-- Build semantic, responsive interfaces that work with keyboard navigation.
-- Preserve visible focus states and accessible labels for interactive controls.
-- Handle loading, empty, error, and success states when the feature can reach them.
-- Check narrow mobile, tablet, and desktop layouts after UI changes.
-- Respect reduced-motion preferences for nonessential animation.
-- Avoid layout shifts, unnecessary client-side work, and oversized dependencies.
-- Keep secrets and privileged operations out of browser-delivered code.
-- Validate untrusted input at system boundaries and encode output for its destination.
-- Do not use screenshots or large hardcoded pixel maps as substitutes for live UI.
+## 품질 기준
 
-## Manual QA expectations
-
-- UI or interaction change: open the app and test the primary scenario plus one important failure or edge scenario.
-- Responsive change: inspect approximately 375 px, 768 px, and a desktop width.
-- API change: exercise the real endpoint and verify status, response shape, and one invalid-input case.
-- Data mutation: verify both persisted result and visible user feedback.
-- Bug fix: reproduce the original failure first when practical, then demonstrate it no longer occurs.
-
-If the app cannot be launched, report the exact blocker and perform the strongest available static or automated verification instead.
+- 사용자 입력은 시스템 경계에서 검증한다.
+- 비밀값과 권한이 필요한 처리는 브라우저 코드에 포함하지 않는다.
+- 의미 있는 HTML, 반응형 레이아웃, reduced-motion 설정을 유지한다.
+- 변경 후 최종 diff에서 보안, 접근성, 성능, 회귀 및 불필요한 변경을 확인한다.
 
 ## Code Review Rules
 
-Review findings before summaries and order them by severity.
+- finding을 심각도 순으로 먼저 보고한다.
+- 각 finding에 정확한 파일과 줄, 사용자 영향, 권장 수정 방법을 포함한다.
+- 요구사항 위반, 인증·권한 문제, 비밀 노출, injection, 접근성 저하, 반응형 레이아웃 손상, 처리되지 않은 사용자 상태를 우선 확인한다.
+- finding이 없다면 명시적으로 밝히고 남은 검증 공백이나 위험을 적는다.
 
-- Flag behavior that contradicts the requested user outcome.
-- Flag missing authorization, secret exposure, injection risks, unsafe redirects, and insecure client-side trust.
-- Flag broken keyboard access, missing accessible names, focus loss, contrast regressions, and clipped responsive layouts.
-- Flag unhandled loading, error, and empty states that users can reach.
-- Flag changes that bypass established tests, types, validation, or repository conventions.
-- Include a precise file and line reference for every actionable finding.
-- If no findings remain, say so and name any verification gap or residual risk.
+## 완료 보고
 
-## Completion contract
+완료 보고에는 다음을 포함한다.
 
-Do not claim completion until all applicable items are true:
+- 변경 내용
+- 통과한 명령과 수동 QA 시나리오
+- 검증하지 못한 항목과 이유
 
-- The requested behavior is implemented.
-- Changed files have no known diagnostics errors.
-- Applicable tests and production build pass.
-- The real user-facing surface has been exercised when runnable.
-- The final diff contains no unrelated edits.
-- The handoff states what changed, what passed, and what could not be verified.
+<!-- BEGIN:nextjs-agent-rules -->
 
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

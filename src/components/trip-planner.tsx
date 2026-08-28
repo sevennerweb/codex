@@ -14,7 +14,7 @@ export type TripDraft = {
 type TripResponse = { trip?: unknown; error?: string };
 type SaveResult = { status: "saved"; trip: TripDraft } | { status: "conflict"; trip: TripDraft } | { status: "error"; message: string };
 
-const STORAGE_KEY = "travel-planner:first-trip";
+const LEGACY_STORAGE_KEY = "travel-planner:first-trip";
 const EMPTY_TRIP: TripDraft = {
   name: "",
   startDate: "",
@@ -41,18 +41,27 @@ function normalizeTrip(value: unknown): TripDraft | null {
   };
 }
 
-function readCachedTrip() {
+function storageKey(accountId: string) {
+  return `travel-planner:${accountId}:first-trip`;
+}
+
+function readCachedTrip(accountId: string) {
   try {
-    const saved = window.localStorage.getItem(STORAGE_KEY);
+    const key = storageKey(accountId);
+    let saved = window.localStorage.getItem(key);
+    if (!saved && (accountId === "admin" || accountId === "guest1")) {
+      saved = window.localStorage.getItem(LEGACY_STORAGE_KEY);
+      if (saved) window.localStorage.setItem(key, saved);
+    }
     return saved ? normalizeTrip(JSON.parse(saved)) : null;
   } catch {
-    window.localStorage.removeItem(STORAGE_KEY);
+    window.localStorage.removeItem(storageKey(accountId));
     return null;
   }
 }
 
-function cacheTrip(trip: TripDraft) {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(trip));
+function cacheTrip(accountId: string, trip: TripDraft) {
+  window.localStorage.setItem(storageKey(accountId), JSON.stringify(trip));
 }
 
 async function saveTripToServer(trip: TripDraft): Promise<SaveResult> {
@@ -86,7 +95,7 @@ function getTripDays(startDate: string, endDate: string) {
   return Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
 }
 
-export function TripPlanner() {
+export function TripPlanner({ accountId }: { accountId: string }) {
   const [trip, setTrip] = useState<TripDraft>(EMPTY_TRIP);
   const [error, setError] = useState("");
   const [syncMessage, setSyncMessage] = useState("");
@@ -100,7 +109,7 @@ export function TripPlanner() {
     let cancelled = false;
 
     async function restoreTrip() {
-      const cached = readCachedTrip();
+      const cached = readCachedTrip(accountId);
       try {
         const response = await fetch("/api/trips/current", { cache: "no-store" });
         const payload = await response.json() as TripResponse;
@@ -110,13 +119,13 @@ export function TripPlanner() {
         if (serverTrip) {
           if (!cancelled) {
             setTrip(serverTrip);
-            cacheTrip(serverTrip);
+            cacheTrip(accountId, serverTrip);
           }
         } else if (cached?.name && cached.startDate && cached.endDate) {
           const migration = await saveTripToServer({ ...cached, version: 0 });
           if (!cancelled && migration.status !== "error") {
             setTrip(migration.trip);
-            cacheTrip(migration.trip);
+            cacheTrip(accountId, migration.trip);
             setSyncMessage(migration.status === "saved" ? "기존 브라우저 여행 정보를 서버로 이전했습니다." : "서버의 최신 여행 정보를 불러왔습니다.");
           } else if (!cancelled) {
             setTrip(cached);
@@ -133,7 +142,7 @@ export function TripPlanner() {
 
     void restoreTrip();
     return () => { cancelled = true; };
-  }, []);
+  }, [accountId]);
 
   function updateTrip(field: "name" | "startDate" | "endDate", value: string) {
     setTrip((current) => ({ ...current, [field]: value }));
@@ -148,19 +157,19 @@ export function TripPlanner() {
 
     if (result.status === "saved") {
       setTrip(result.trip);
-      cacheTrip(result.trip);
+      cacheTrip(accountId, result.trip);
       setSyncMessage("이 PC의 서버에 저장했습니다.");
       return;
     }
     if (result.status === "conflict") {
       setTrip(result.trip);
-      cacheTrip(result.trip);
+      cacheTrip(accountId, result.trip);
       setSyncMessage("다른 화면에서 변경된 최신 여행 정보를 불러왔습니다. 내용을 확인해 주세요.");
       return;
     }
 
     setTrip(nextTrip);
-    cacheTrip(nextTrip);
+    cacheTrip(accountId, nextTrip);
     setSyncMessage(`${result.message} 변경 내용은 이 브라우저에 임시 저장했습니다.`);
   }
 
@@ -242,7 +251,7 @@ export function TripPlanner() {
           </form>
         )}
       </section>
-      {trip.confirmed ? <TravelWorkspace trip={trip} /> : null}
+      {trip.confirmed ? <TravelWorkspace accountId={accountId} trip={trip} /> : null}
     </div>
   );
 }

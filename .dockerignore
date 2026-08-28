@@ -1,0 +1,7 @@
+.git
+.next
+.tmp-trip-api
+data
+node_modules
+npm-debug.log*
+pnpm-debug.log*

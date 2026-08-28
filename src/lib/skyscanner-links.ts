@@ -112,7 +112,7 @@ export function parseSkyscannerLink(value: string): Omit<SavedFlightSearch, "pro
 
   const host = url.hostname.toLowerCase();
   const allowed = ["skyscanner.co.kr", "skyscanner.net", "skyscanner.com"];
-  if (!allowed.some((domain) => host === domain || host.endsWith(`.${domain}`))) {
+  if (url.protocol !== "https:" || !allowed.some((domain) => host === domain || host.endsWith(`.${domain}`))) {
     throw new Error("Skyscanner 결과 페이지 링크만 가져올 수 있습니다.");
   }
 
@@ -184,4 +184,30 @@ export function parseSkyscannerLink(value: string): Omit<SavedFlightSearch, "pro
     adults: Number.isInteger(adults) && adults >= 1 && adults <= 9 ? adults : 1,
     nonStopOnly: url.searchParams.get("preferdirects") === "true",
   };
+}
+
+export function normalizeSavedFlightSearches(value: unknown): SavedFlightSearch[] | null {
+  if (!Array.isArray(value) || value.length > 20) return null;
+  const searches: SavedFlightSearch[] = [];
+  const keys = new Set<string>();
+
+  for (const candidate of value) {
+    if (!candidate || typeof candidate !== "object") return null;
+    const input = candidate as Record<string, unknown>;
+    const url = typeof input.url === "string" && input.url.length <= 2_048 ? input.url : "";
+    const importedAt = typeof input.importedAt === "string" ? input.importedAt : "";
+    if (!url || !importedAt || Number.isNaN(Date.parse(importedAt))) return null;
+
+    try {
+      const parsed = parseSkyscannerLink(url);
+      const key = `${parsed.kind}:${parsed.outboundOrigin}:${parsed.outboundDestination}:${parsed.departureDate}`;
+      if (keys.has(key)) return null;
+      keys.add(key);
+      searches.push({ ...parsed, provider: "Skyscanner", importedAt: new Date(importedAt).toISOString() });
+    } catch {
+      return null;
+    }
+  }
+
+  return searches;
 }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isAuthenticatedRequest } from "@/lib/auth-server";
 
 type NominatimPlace = {
   place_id: number;
@@ -22,17 +23,22 @@ const KOREAN_CITY_ALIASES: Record<string, string> = {
 };
 
 export async function GET(request: NextRequest) {
+  if (!await isAuthenticatedRequest(request)) return NextResponse.json({ error: "로그인이 필요합니다." }, { status: 401 });
   const query = request.nextUrl.searchParams.get("q")?.trim() ?? "";
+  const scope = request.nextUrl.searchParams.get("scope") ?? "city";
   if (query.length < 2 || query.length > 80) {
     return NextResponse.json({ error: "검색어는 2자 이상 80자 이하로 입력해 주세요." }, { status: 400 });
+  }
+  if (scope !== "city" && scope !== "place") {
+    return NextResponse.json({ error: "지원하지 않는 검색 범위입니다." }, { status: 400 });
   }
 
   const endpoint = new URL("https://nominatim.openstreetmap.org/search");
   endpoint.searchParams.set("q", KOREAN_CITY_ALIASES[query.replaceAll(" ", "")] ?? query);
   endpoint.searchParams.set("format", "jsonv2");
-  endpoint.searchParams.set("limit", "5");
+  endpoint.searchParams.set("limit", scope === "place" ? "7" : "5");
   endpoint.searchParams.set("accept-language", "ko");
-  endpoint.searchParams.set("layer", "address");
+  if (scope === "city") endpoint.searchParams.set("layer", "address");
 
   try {
     const wait = Math.max(0, 1_050 - (Date.now() - lastNominatimRequest));
