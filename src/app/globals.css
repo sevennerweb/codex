@@ -374,6 +374,13 @@ textarea:focus-visible {
   gap: 24px;
 }
 
+@media (min-width: 901px) {
+  .intro-panel { position: static; }
+  .planner-stack { display: contents; }
+  .planner-stack > .planner-card { grid-column: 2; }
+  .planner-stack > .workspace-card { grid-column: 1 / -1; }
+}
+
 .card-heading {
   display: flex;
   align-items: flex-start;
@@ -753,6 +760,34 @@ textarea:focus-visible {
   white-space: nowrap;
 }
 
+.workspace-heading-actions { display: flex; align-items: center; gap: 9px; }
+.trip-day-mode { display: grid; gap: 18px; }
+.trip-day-hero { padding: 24px; display: grid; gap: 16px; border: 1px solid var(--line); border-radius: 20px; background: linear-gradient(145deg, var(--primary-soft), var(--surface-strong) 62%); }
+.trip-day-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.trip-day-heading h3 { margin: 6px 0 0; font-family: Georgia, "Times New Roman", serif; font-size: clamp(24px, 4vw, 34px); }
+.next-schedule-card { padding: 20px; display: grid; gap: 7px; border-radius: 17px; background: var(--surface-strong); box-shadow: 0 12px 28px rgba(37, 61, 55, 0.1); }
+.next-schedule-card > span { color: var(--primary-dark); font-size: 11px; font-weight: 780; }
+.next-schedule-card > strong { font-size: clamp(22px, 4vw, 34px); line-height: 1.15; }
+.next-schedule-card > p { margin: 0; color: var(--ink-soft); font-size: 13px; }
+.trip-move-button { margin-top: 8px; min-height: 58px; padding: 0 18px; display: flex; align-items: center; justify-content: space-between; border-radius: 15px; background: var(--primary); color: white; font-size: 14px; font-weight: 800; text-decoration: none; }
+.trip-move-button.is-disabled { background: var(--surface-subtle); color: var(--ink-soft); }
+.trip-day-weather { padding: 12px 15px; display: flex; align-items: center; gap: 12px; border-radius: 13px; background: rgba(255, 255, 255, 0.72); }
+.trip-day-weather span { color: var(--ink-soft); font-size: 10px; }
+.trip-day-weather strong { font-size: 15px; }
+.trip-day-weather small { margin-left: auto; color: var(--ink-soft); }
+.trip-day-section { padding: 18px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface-muted); }
+.trip-day-section-heading { margin-bottom: 12px; }
+.trip-day-section-heading h4 { margin: 4px 0 0; font-size: 18px; }
+.day-readonly-timeline { display: grid; gap: 8px; }
+.day-readonly-timeline > article { padding: 12px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 11px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface-strong); }
+.day-readonly-timeline > article > span { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 10px; background: var(--primary-soft); color: var(--primary-dark); font-size: 11px; font-weight: 800; }
+.day-readonly-timeline article > div { min-width: 0; display: grid; gap: 2px; }
+.day-readonly-timeline small,.day-readonly-timeline p { margin: 0; overflow: hidden; color: var(--ink-soft); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.day-readonly-timeline strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.day-readonly-timeline article > a { color: var(--primary-dark); font-size: 10px; font-weight: 780; text-decoration: none; }
+.day-mode-error { padding: 24px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface-muted); }
+.day-mode-error p { color: var(--danger); }
+
 .workspace-tabs {
   margin: 27px 0 30px;
   padding: 4px;
@@ -967,6 +1002,26 @@ textarea:focus-visible {
 
 .environment-production { background: var(--primary-soft); color: var(--primary-dark); }
 
+.section-toggle-button,
+.day-mode-toggle {
+  min-height: 40px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--surface-strong);
+  color: var(--primary-dark);
+  font-size: 11px;
+  font-weight: 760;
+  cursor: pointer;
+}
+.section-toggle-button:hover,.day-mode-toggle:hover { border-color: var(--primary); background: var(--primary-soft); }
+.collapsible-summary { margin: 10px 0 0; color: var(--ink-soft); font-size: 11px; line-height: 1.5; }
+.collapsible-details { padding-top: 2px; }
+
 .flight-search-form {
   margin-top: 18px;
   display: grid;
@@ -1091,10 +1146,68 @@ textarea:focus-visible {
 .selected-flight-list article > p { margin: 0; color: var(--ink-soft); font-size: 12px; }
 .selected-flight-list article > div { display: flex; justify-content: flex-end; gap: 8px; }
 
+.reservation-list,
+.train-plans { display: grid; gap: 10px; }
+.reservation-card {
+  min-width: 0;
+  padding: 14px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: var(--surface-strong);
+  box-shadow: 0 4px 12px rgba(37, 61, 55, 0.04);
+}
+.reservation-icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 12px; background: var(--primary-soft); color: var(--primary-dark); font-size: 17px; font-weight: 800; }
+.reservation-train .reservation-icon { background: #e3edf7; color: #376d9a; }
+.reservation-stay .reservation-icon { background: #e8eaf7; color: #565e9a; }
+.reservation-body { min-width: 0; display: grid; gap: 3px; }
+.reservation-eyebrow { color: var(--ink-soft); font-size: 10px; font-weight: 700; }
+.reservation-body > strong { overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.reservation-body > p { margin: 0; color: var(--ink-soft); font-size: 11px; line-height: 1.45; }
+.reservation-detail { color: var(--primary-dark); font-size: 11px; font-weight: 750; }
+.reservation-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
+.reservation-actions a { white-space: nowrap; }
+
 .itinerary-layout {
   display: grid;
   gap: 26px;
 }
+
+.itinerary-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.itinerary-view-toggle { display: none; padding: 4px; border-radius: 13px; background: var(--surface-subtle); }
+.itinerary-view-toggle button { min-height: 38px; padding: 0 13px; border: 0; border-radius: 10px; background: transparent; color: var(--ink-soft); font-size: 11px; font-weight: 750; cursor: pointer; }
+.itinerary-view-toggle button.is-active { background: var(--surface-strong); color: var(--primary-dark); box-shadow: 0 2px 8px rgba(37, 61, 55, 0.1); }
+.itinerary-content { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(300px, 0.88fr); align-items: start; gap: 18px; }
+.itinerary-timeline { min-width: 0; }
+.itinerary-map-pane { min-width: 0; position: sticky; top: 92px; display: grid; gap: 10px; }
+.itinerary-map-dates { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: thin; }
+.itinerary-map-dates button { min-width: 58px; min-height: 38px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-strong); color: var(--ink-soft); font-size: 10px; font-weight: 760; cursor: pointer; }
+.itinerary-map-dates button.is-active { border-color: var(--primary); background: var(--primary-soft); color: var(--primary-dark); }
+.itinerary-map-card { min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface-strong); box-shadow: 0 8px 24px rgba(37, 61, 55, 0.06); }
+.itinerary-map-heading { margin-bottom: 12px; display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.itinerary-map-heading h4 { margin: 4px 0 0; font-size: 15px; }
+.itinerary-map-heading > a { min-height: 36px; padding: 0 10px; display: inline-flex; align-items: center; border-radius: 10px; background: var(--primary); color: white; font-size: 9px; font-weight: 760; text-align: center; text-decoration: none; }
+.itinerary-map-frame { position: relative; height: 350px; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-subtle); }
+.itinerary-map-frame iframe { width: 100%; height: 100%; border: 0; }
+.itinerary-map-pins { position: absolute; inset: 0; pointer-events: none; }
+.itinerary-map-pin { position: absolute; z-index: 2; width: 30px; height: 30px; display: grid; place-items: center; transform: translate(-50%, -100%); border: 3px solid white; border-radius: 50% 50% 50% 4px; background: var(--primary); box-shadow: 0 4px 12px rgba(26, 47, 42, 0.32); color: white; font-size: 11px; font-weight: 850; cursor: pointer; pointer-events: auto; }
+.itinerary-map-pin.category-숙소 { background: #6871ad; }
+.itinerary-map-pin.category-식사 { background: #b9673f; }
+.itinerary-map-pin.category-교통 { background: #477da8; }
+.itinerary-map-pin.category-기타 { background: #69736f; }
+.itinerary-map-pin.is-selected { width: 36px; height: 36px; border-color: #fff8d9; box-shadow: 0 0 0 3px var(--primary), 0 7px 16px rgba(26, 47, 42, 0.34); }
+.itinerary-map-selection { margin-top: 10px; padding: 11px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; border-radius: 12px; background: var(--surface-muted); }
+.itinerary-map-selection > div { min-width: 0; display: grid; gap: 2px; }
+.itinerary-map-selection span,.itinerary-map-selection small { overflow: hidden; color: var(--ink-soft); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.itinerary-map-selection strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.itinerary-map-selection > a { color: var(--primary-dark); font-size: 10px; font-weight: 760; text-decoration: none; white-space: nowrap; }
+.itinerary-map-empty { min-height: 290px; padding: 24px; display: grid; place-items: center; align-content: center; gap: 8px; border: 1px dashed var(--line-strong); border-radius: 14px; color: var(--ink-soft); text-align: center; }
+.itinerary-map-empty > span { font-size: 30px; color: var(--primary); }
+.itinerary-map-empty strong { color: var(--ink); font-size: 13px; }
+.itinerary-map-empty p { margin: 0; max-width: 260px; font-size: 10px; line-height: 1.55; }
 
 .schedule-form {
   padding: 20px;
@@ -1347,6 +1460,11 @@ textarea:focus-visible {
   color: var(--primary-dark);
   font-weight: 800;
 }
+.category-icon:has(> strong) { position: relative; }
+.category-icon > strong { font-size: 12px; }
+.category-icon > small { position: absolute; right: -3px; bottom: -4px; width: 14px; height: 14px; display: grid; place-items: center; border: 2px solid var(--surface-muted); border-radius: 50%; background: inherit; font-size: 7px; }
+.schedule-card.is-selected { border-color: var(--primary); box-shadow: 0 0 0 2px var(--focus-soft); }
+.schedule-card.is-reservation-stay { border-color: #cfd2e8; background: #f7f7fc; }
 
 .category-숙소 { background: #e8eaf7; color: #565e9a; }
 .category-식사 { background: #f9e9df; color: #a75531; }
@@ -1354,12 +1472,51 @@ textarea:focus-visible {
 .category-기타 { background: #eeeeea; color: #69736f; }
 
 .schedule-card-body { min-width: 0; }
+.schedule-card-summary {
+  width: 100%;
+  padding: 3px 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+.schedule-card-summary:hover h5 { color: var(--primary-dark); }
+.schedule-card-summary:focus-visible { border-radius: 8px; outline: 3px solid var(--focus-ring); outline-offset: 4px; }
 .schedule-card-heading span { color: var(--ink-soft); font-size: 10px; }
 .schedule-card-heading h5 { margin: 3px 0 0; overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .schedule-card-body p { margin: 5px 0 0; overflow: hidden; color: var(--ink-soft); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .schedule-card-body .schedule-address { margin-top: 3px; display: block; overflow: hidden; color: var(--ink-soft); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .schedule-card-body .schedule-note { color: var(--ink); white-space: normal; }
 .schedule-card-body .schedule-stay-time { color: var(--primary-dark); font-weight: 700; white-space: normal; }
+.schedule-card-toggle { margin-top: 6px; display: inline-block; color: var(--primary-dark); font-size: 10px; font-weight: 750; }
+.schedule-card-details {
+  min-width: 0;
+  padding: 11px 4px 2px;
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+}
+.schedule-card-details p { margin: 0; display: grid; gap: 3px; color: var(--ink-soft); font-size: 11px; line-height: 1.5; }
+.schedule-card-details p strong { color: var(--ink); font-size: 10px; }
+.schedule-card-map-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.schedule-card-map-actions a {
+  min-height: 36px;
+  padding: 0 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface-strong);
+  color: var(--primary-dark);
+  font-size: 10px;
+  font-weight: 750;
+  text-decoration: none;
+}
+.schedule-card-map-actions a:hover { border-color: var(--primary); }
+.schedule-card-no-details { color: var(--ink-soft); }
 .schedule-map-link { margin-top: 7px; display: inline-flex; align-items: center; gap: 4px; color: var(--primary-dark); font-size: 10px; font-weight: 720; text-decoration: none; }
 .schedule-map-link:hover { text-decoration: underline; }
 
@@ -1479,6 +1636,15 @@ textarea:focus-visible {
   .page-grid { align-items: start; }
 }
 
+@media (max-width: 900px) {
+  .itinerary-view-toggle { display: flex; }
+  .itinerary-content { display: block; }
+  .itinerary-content[data-mobile-view="timeline"] .itinerary-map-pane { display: none; }
+  .itinerary-content[data-mobile-view="map"] .itinerary-timeline { display: none; }
+  .itinerary-map-pane { position: static; }
+  .itinerary-map-frame { height: 390px; }
+}
+
 @media (max-width: 600px) {
   .app-shell { padding-bottom: 100px; }
   .site-header { top: 8px; width: calc(100% - 20px); min-height: 62px; margin-top: 8px; padding: 8px 9px; gap: 8px; border-radius: 18px; }
@@ -1509,6 +1675,25 @@ textarea:focus-visible {
   .workspace-tabs { grid-template-columns: repeat(2, 1fr); }
   .workspace-heading { align-items: flex-start; }
   .workspace-trip-name { display: none; }
+  .workspace-heading-actions { align-items: flex-end; }
+  .day-mode-toggle { min-height: 38px; padding-inline: 10px; }
+  .trip-day-hero { padding: 17px 14px; }
+  .trip-day-heading { align-items: stretch; flex-direction: column; }
+  .trip-day-heading .secondary-button { width: 100%; }
+  .next-schedule-card { padding: 17px 14px; }
+  .trip-day-section { padding: 15px 12px; }
+  .itinerary-toolbar { align-items: stretch; flex-direction: column; }
+  .itinerary-toolbar .primary-button { width: 100%; }
+  .itinerary-view-toggle { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .itinerary-map-frame { height: 360px; }
+  .itinerary-map-heading { align-items: stretch; flex-direction: column; }
+  .itinerary-map-heading > a { width: 100%; justify-content: center; }
+  .itinerary-map-selection { grid-template-columns: auto minmax(0, 1fr); }
+  .itinerary-map-selection > a { grid-column: 1 / -1; min-height: 38px; display: grid; place-items: center; border-radius: 10px; background: var(--primary-soft); }
+  .reservation-card { grid-template-columns: auto minmax(0, 1fr); }
+  .reservation-actions { grid-column: 1 / -1; justify-content: stretch; }
+  .reservation-actions > * { flex: 1; justify-content: center; }
+  .section-toggle-button { width: 100%; }
   .airport-grid { grid-template-columns: minmax(0, 1fr); gap: 13px; }
   .airport-grid > span { display: none; }
   .route-leg { padding: 17px 14px; }

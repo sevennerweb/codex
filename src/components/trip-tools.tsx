@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { ReservationCard } from "@/components/reservation-card";
 import type { TripDraft } from "@/components/trip-planner";
 import { buildNavitimeSearchUrl, navitimeStationName, SHINKANSEN_STATIONS } from "@/lib/navitime-links";
 import {
@@ -377,6 +378,7 @@ export function ShinkansenTools({ accountId, trip }: { accountId: string; trip: 
   const [loadedKey, setLoadedKey] = useState("");
   const [syncMessage, setSyncMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
   const savingRef = useRef(false);
   const searchUrl = buildNavitimeSearchUrl(originId, destinationId, date, time);
 
@@ -466,15 +468,21 @@ export function ShinkansenTools({ accountId, trip }: { accountId: string; trip: 
     }
     void save([...plans, { id: crypto.randomUUID(), date, origin, destination, time, searchUrl }]);
     setError("");
+    setFormOpen(false);
   }
 
   return (
     <div className="train-layout">
       {loadedKey !== trainKey ? <p className="sync-message" role="status">계정에 저장된 열차 계획을 불러오는 중입니다…</p> : syncMessage ? <p className="sync-message" role="status">{syncMessage}</p> : null}
       <section className="tool-section">
-        <div className="tool-heading"><span className="step-label">SHINKANSEN</span><h4>신칸센 좌석 계획</h4></div>
+        <div className="tool-heading tool-heading-with-action">
+          <div><span className="step-label">SHINKANSEN</span><h4>신칸센 좌석 계획</h4></div>
+          <button className="section-toggle-button" type="button" aria-expanded={formOpen} aria-controls="train-add-form" onClick={() => { setFormOpen((current) => !current); setError(""); }}>
+            {formOpen ? "입력 닫기" : "열차 계획 추가"}<span aria-hidden="true">{formOpen ? "−" : "+"}</span>
+          </button>
+        </div>
         <p className="tool-description">역과 탑승 시간을 선택하면 NAVITIME에서 해당 조건의 열차·시간표·요금을 바로 검색할 수 있습니다.</p>
-        <form className="train-form" onSubmit={add}>
+        {formOpen ? <form className="train-form" id="train-add-form" onSubmit={add}>
           <div className="field-group"><label htmlFor="train-date">탑승일</label><input id="train-date" type="date" min={trip.startDate} max={trip.endDate} value={date} onChange={(event) => setDate(event.target.value)} /></div>
           <div className="field-group"><label htmlFor="train-time">시간</label><input id="train-time" type="time" value={time} onChange={(event) => setTime(event.target.value)} /></div>
           <div className="field-group train-station-field"><label htmlFor="train-origin">출발역</label><select id="train-origin" value={originId} onChange={(event) => { setOriginId(event.target.value); setError(""); }}><option value="">출발역 선택</option>{SHINKANSEN_STATIONS.map((station) => <option value={station.id} key={station.id}>{station.name} · {station.region}</option>)}</select></div>
@@ -482,10 +490,20 @@ export function ShinkansenTools({ accountId, trip }: { accountId: string; trip: 
           {error ? <p className="form-error" role="alert"><span aria-hidden="true">!</span>{error}</p> : null}
           <p className="train-provider-note">계획을 저장하면 동일한 조건의 NAVITIME 검색 링크도 함께 저장됩니다.</p>
           <div className="train-actions">{searchUrl ? <a className="secondary-link" href={searchUrl} target="_blank" rel="noreferrer">NAVITIME에서 검색 ↗</a> : <span className="secondary-link is-disabled" aria-disabled="true">역·날짜·시간을 선택하세요</span>}<button className="primary-button compact" type="submit" disabled={saving}>{saving ? "서버에 저장 중…" : "계획 저장"} <span aria-hidden="true">＋</span></button></div>
-        </form>
+        </form> : null}
       </section>
       <section className="train-plans">
-        {plans.length ? plans.map((plan) => <article className="train-card" key={plan.id}><div><time>{plan.date} {plan.time}</time><strong>{plan.origin} <span>→</span> {plan.destination}</strong><p>NAVITIME 검색 조건 저장됨</p></div><div className="train-card-actions">{plan.searchUrl ? <a className="train-result-link" href={plan.searchUrl} target="_blank" rel="noreferrer">다시 검색</a> : null}<button className="icon-button" type="button" aria-label={`${plan.origin}에서 ${plan.destination} 계획 삭제`} onClick={() => void save(plans.filter((item) => item.id !== plan.id))} disabled={saving}>×</button></div></article>) : <p className="tool-empty">저장된 신칸센 계획이 없습니다.</p>}
+        {plans.length ? plans.map((plan) => (
+          <ReservationCard
+            key={plan.id}
+            icon="▤"
+            tone="train"
+            eyebrow={`열차 · ${plan.date} ${plan.time}`}
+            title={`${plan.origin} → ${plan.destination}`}
+            meta="NAVITIME 검색 조건 저장됨"
+            actions={<>{plan.searchUrl ? <a className="train-result-link" href={plan.searchUrl} target="_blank" rel="noreferrer">다시 검색</a> : null}<button className="icon-button" type="button" aria-label={`${plan.origin}에서 ${plan.destination} 계획 삭제`} onClick={() => void save(plans.filter((item) => item.id !== plan.id))} disabled={saving}>×</button></>}
+          />
+        )) : <p className="tool-empty">저장된 신칸센 계획이 없습니다.</p>}
       </section>
     </div>
   );

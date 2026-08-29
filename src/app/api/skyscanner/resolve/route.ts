@@ -4,10 +4,44 @@ import { isAuthenticatedRequest } from "@/lib/auth-server";
 const SHARED_LINK_HOST = "skyscanner.app.link";
 const LANDING_HOST = "appipv4.link";
 const SKYSCANNER_HOSTS = ["skyscanner.co.kr", "skyscanner.net", "skyscanner.com"];
+const MAX_LANDING_PAGE_BYTES = 1_000_000;
 
 function isSkyscannerHost(hostname: string) {
   const host = hostname.toLowerCase();
   return SKYSCANNER_HOSTS.some((domain) => host === domain || host.endsWith(`.${domain}`));
+}
+
+function decodeHtmlUrl(value: string) {
+  return value
+    .replaceAll("&amp;", "&")
+    .replaceAll("&#38;", "&")
+    .replace(/&#x26;/giu, "&")
+    .replaceAll("&#61;", "=")
+    .replace(/&#x3d;/giu, "=");
+}
+
+function extractFlightUrl(html: string) {
+  const matches = html.matchAll(/https:\/\/(?:[a-z\d-]+\.)*skyscanner\.(?:co\.kr|net|com)\/transport\/flights\/[^"'<>\s]+/giu);
+  for (const match of matches) {
+    try {
+      const candidate = new URL(decodeHtmlUrl(match[0]));
+      if (isSkyscannerHost(candidate.hostname) && candidate.pathname.toLowerCase().startsWith("/transport/flights/")) {
+        return candidate;
+      }
+    } catch {
+      // Ignore malformed metadata and continue looking for another Skyscanner URL.
+    }
+  }
+  throw new Error("Flight URL not found");
+}
+
+async function readLandingPage(response: Response) {
+  if (!response.ok) throw new Error(`Landing page returned ${response.status}`);
+  const contentLength = Number(response.headers.get("content-length") ?? 0);
+  if (contentLength > MAX_LANDING_PAGE_BYTES) throw new Error("Landing page too large");
+  const html = await response.text();
+  if (html.length > MAX_LANDING_PAGE_BYTES) throw new Error("Landing page too large");
+  return html;
 }
 
 export async function POST(request: NextRequest) {
@@ -30,26 +64,27 @@ export async function POST(request: NextRequest) {
       cache: "no-store",
     });
     const location = initialResponse.headers.get("location");
-    if (!location) throw new Error("Missing redirect");
+    let resultUrl: URL;
+    if (!location) {
+      // Branch now commonly returns a 200 deep-view page whose og:url contains the result URL.
+      resultUrl = extractFlightUrl(await readLandingPage(initialResponse));
+    } else {
+      const landingUrl = new URL(location, sharedUrl);
+      if (landingUrl.protocol !== "https:") throw new Error("Unexpected redirect");
+      if (isSkyscannerHost(landingUrl.hostname)) {
+        resultUrl = landingUrl;
+      } else {
+        if (landingUrl.hostname.toLowerCase() !== LANDING_HOST) throw new Error("Unexpected redirect");
+        const landingResponse = await fetch(landingUrl, {
+          redirect: "error",
+          headers: { "User-Agent": "Mozilla/5.0 (compatible; webapp-travel/0.1)" },
+          signal: AbortSignal.timeout(8_000),
+          cache: "no-store",
+        });
+        resultUrl = extractFlightUrl(await readLandingPage(landingResponse));
+      }
+    }
 
-    const landingUrl = new URL(location, sharedUrl);
-    if (landingUrl.protocol !== "https:" || landingUrl.hostname.toLowerCase() !== LANDING_HOST) throw new Error("Unexpected redirect");
-
-    const landingResponse = await fetch(landingUrl, {
-      redirect: "error",
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; webapp-travel/0.1)" },
-      signal: AbortSignal.timeout(8_000),
-      cache: "no-store",
-    });
-    if (!landingResponse.ok) throw new Error(`Landing page returned ${landingResponse.status}`);
-
-    const contentLength = Number(landingResponse.headers.get("content-length") ?? 0);
-    if (contentLength > 1_000_000) throw new Error("Landing page too large");
-    const html = await landingResponse.text();
-    const match = html.match(/href="(https:\/\/(?:[^/]+\.)?skyscanner\.(?:co\.kr|net|com)\/transport\/flights\/[^"<]+)"/i);
-    if (!match?.[1]) throw new Error("Flight URL not found");
-
-    const resultUrl = new URL(match[1].replaceAll("&amp;", "&"));
     if (!isSkyscannerHost(resultUrl.hostname) || !resultUrl.pathname.toLowerCase().startsWith("/transport/flights/")) {
       throw new Error("Unexpected result URL");
     }

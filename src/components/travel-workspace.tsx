@@ -21,6 +21,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { FormEvent, KeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
+import { ReservationCard } from "@/components/reservation-card";
 import type { TripDraft } from "@/components/trip-planner";
 import { LocalInfoTools, ShinkansenTools } from "@/components/trip-tools";
 import airportDataset from "@/data/airports.json";
@@ -31,16 +32,22 @@ import {
   type SavedFlightSearch,
 } from "@/lib/skyscanner-links";
 import {
+  googleMapsDirectionsUrl,
   googleMapsSearchUrl,
+  normalizeLocalInfoData,
   normalizeGoogleMapsUrl,
   normalizeRoutePlan,
   normalizeScheduleItems,
   normalizeSelectedFlights,
+  normalizeTrainPlans,
+  openStreetMapUrl,
+  type LocalInfoData,
   type RoutePlan,
   type ScheduleCategory,
   type ScheduleItem,
   type SelectedFlight,
   type StoredTripSection,
+  type TrainPlan,
 } from "@/lib/trip-sections";
 
 type Airport = (typeof airportDataset.airports)[number];
@@ -426,6 +433,7 @@ function FlightSearchPanel({ accountId, trip, route }: { accountId: string; trip
   const savingRef = useRef(false);
   const [error, setError] = useState("");
   const [importing, setImporting] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const generatedSearches = useMemo(() => buildSkyscannerSearches(trip, route, adults, nonStopOnly), [adults, nonStopOnly, route, trip]);
 
   function searchMatchesCurrent(search: SavedFlightSearch) {
@@ -586,10 +594,13 @@ function FlightSearchPanel({ accountId, trip, route }: { accountId: string; trip
           <span className="step-label">EXTERNAL SEARCH</span>
           <h4 id="flight-search-heading">Skyscanner 최저가 검색</h4>
         </div>
-        <span className="environment-badge environment-production">API 키 불필요</span>
+        <button className="section-toggle-button" type="button" aria-expanded={detailsOpen} aria-controls="flight-search-details" onClick={() => setDetailsOpen((current) => !current)}>
+          {detailsOpen ? "상세 접기" : "검색·링크 관리"}<span aria-hidden="true">{detailsOpen ? "−" : "+"}</span>
+        </button>
       </div>
-
-      <div className="flight-search-form">
+      <p className="collapsible-summary">{generatedSearches.map((search) => `${search.origin}→${search.destination}`).join(" · ")} · 저장된 링크 {savedSearches.length}개</p>
+      {detailsOpen ? <div className="collapsible-details" id="flight-search-details">
+        <div className="flight-search-form">
         <label>
           <span>성인 인원</span>
           <select value={adults} onChange={(event) => setAdults(Number(event.target.value))}>
@@ -600,11 +611,11 @@ function FlightSearchPanel({ accountId, trip, route }: { accountId: string; trip
           <input type="checkbox" checked={nonStopOnly} onChange={(event) => setNonStopOnly(event.target.checked)} />
           <span><strong>직항 우선</strong><small>각 검색에 적용</small></span>
         </label>
-      </div>
+        </div>
 
-      {loadedSearchKey !== savedKey ? <p className="sync-message" role="status">계정에 저장된 항공 검색 링크를 불러오는 중입니다…</p> : syncMessage ? <p className="sync-message" role="status">{syncMessage}</p> : null}
+        {loadedSearchKey !== savedKey ? <p className="sync-message" role="status">계정에 저장된 항공 검색 링크를 불러오는 중입니다…</p> : syncMessage ? <p className="sync-message" role="status">{syncMessage}</p> : null}
 
-      <div className={`flight-search-links ${generatedSearches.length > 1 ? "is-split" : ""}`}>
+        <div className={`flight-search-links ${generatedSearches.length > 1 ? "is-split" : ""}`}>
         {generatedSearches.map((search) => (
           <article key={search.key}>
             <div>
@@ -617,24 +628,24 @@ function FlightSearchPanel({ accountId, trip, route }: { accountId: string; trip
             </a>
           </article>
         ))}
-      </div>
+        </div>
 
-      <ol className="flight-search-steps">
+        <ol className="flight-search-steps">
         <li><span>1</span>공항이 서로 다르면 가는 편과 오는 편을 각각 열어 두 번 검색합니다.</li>
         <li><span>2</span>웹 결과 주소나 Skyscanner 앱의 공유 링크를 복사합니다.</li>
         <li><span>3</span>아래에 붙여 넣어 검색 조건과 결과 페이지를 여행에 저장합니다.</li>
-      </ol>
+        </ol>
 
-      <form className="flight-link-form" onSubmit={importLink} noValidate>
+        <form className="flight-link-form" onSubmit={importLink} noValidate>
         <label htmlFor="skyscanner-result-link">Skyscanner 결과 페이지 또는 앱 공유 링크</label>
         <div>
           <input id="skyscanner-result-link" type="url" value={link} onChange={(event) => { setLink(event.target.value); setError(""); }} placeholder="https://www.skyscanner.co.kr/transport/flights/..." inputMode="url" autoCapitalize="none" autoCorrect="off" />
           <button className="secondary-button compact" type="submit" disabled={importing || saving}>{importing ? "링크 확인 중…" : saving ? "서버에 저장 중…" : "링크 가져오기"}</button>
         </div>
-      </form>
+        </form>
 
-      {error ? <p className="form-error" role="alert"><span aria-hidden="true">!</span>{error}</p> : null}
-      {savedSearches.map((savedSearch) => {
+        {error ? <p className="form-error" role="alert"><span aria-hidden="true">!</span>{error}</p> : null}
+        {savedSearches.map((savedSearch) => {
         const matchesCurrent = searchMatchesCurrent(savedSearch);
         const isOneWay = savedSearch.kind === "oneWay" || !savedSearch.returnDate;
         return (
@@ -651,8 +662,9 @@ function FlightSearchPanel({ accountId, trip, route }: { accountId: string; trip
             </div>
           </article>
         );
-      })}
-      <p className="flight-disclaimer">결과 링크에는 검색 조건만 들어 있으며 개별 항공편·가격 목록은 포함되지 않습니다. 다음 단계에서 선택 항공편을 텍스트나 화면 공유로 가져오는 기능을 추가할 예정입니다.</p>
+        })}
+        <p className="flight-disclaimer">결과 링크에는 검색 조건만 들어 있으며 개별 항공편·가격 목록은 포함되지 않습니다. 다음 단계에서 선택 항공편을 텍스트나 화면 공유로 가져오는 기능을 추가할 예정입니다.</p>
+      </div> : null}
     </section>
   );
 }
@@ -701,6 +713,7 @@ function SelectedFlightPanel({ accountId, trip, route }: { accountId: string; tr
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
   const savingRef = useRef(false);
 
   useEffect(() => {
@@ -769,6 +782,7 @@ function SelectedFlightPanel({ accountId, trip, route }: { accountId: string; tr
   }
 
   function editFlight(flight: SelectedFlight) {
+    setFormOpen(true);
     setDirection(flight.direction);
     setSourceText(flight.sourceText ?? "");
     setCarrier(flight.carrier);
@@ -777,7 +791,7 @@ function SelectedFlightPanel({ accountId, trip, route }: { accountId: string; tr
     setArrivalTime(flight.arrivalTime);
     setPriceKrw(flight.priceKrw === undefined ? "" : String(flight.priceKrw));
     setError("");
-    document.getElementById("selected-flight-form")?.scrollIntoView({ block: "start" });
+    window.requestAnimationFrame(() => document.getElementById("selected-flight-form")?.scrollIntoView({ block: "start" }));
   }
 
   function extract() {
@@ -846,6 +860,7 @@ function SelectedFlightPanel({ accountId, trip, route }: { accountId: string; tr
     }
     void persist(next);
     clearForm(direction);
+    setFormOpen(false);
   }
 
   const details = routeDetails();
@@ -853,11 +868,13 @@ function SelectedFlightPanel({ accountId, trip, route }: { accountId: string; tr
     <section className="selected-flight-panel" aria-labelledby="selected-flight-title">
       <div className="flight-search-heading">
         <div><span className="step-label">CONFIRMED FLIGHT</span><h4 id="selected-flight-title">선택 항공편 기록</h4></div>
-        <span className="environment-badge">텍스트 추출</span>
+        <button className="section-toggle-button" type="button" aria-expanded={formOpen} aria-controls="selected-flight-form" onClick={() => { if (formOpen) { clearForm(); setFormOpen(false); } else { clearForm(); setFormOpen(true); } }}>
+          {formOpen ? "입력 닫기" : "항공편 추가"}<span aria-hidden="true">{formOpen ? "−" : "+"}</span>
+        </button>
       </div>
       {loadedKey !== sectionKey ? <p className="sync-message" role="status">선택 항공편을 불러오는 중입니다…</p> : message ? <p className="sync-message" role="status">{message}</p> : null}
 
-      <form className="selected-flight-form" id="selected-flight-form" onSubmit={saveFlight} noValidate>
+      {formOpen ? <form className="selected-flight-form" id="selected-flight-form" onSubmit={saveFlight} noValidate>
         <div className="field-group">
           <label htmlFor="selected-flight-direction">구간</label>
           <select id="selected-flight-direction" value={direction} onChange={(event) => clearForm(event.target.value as "outbound" | "return")}>
@@ -880,17 +897,20 @@ function SelectedFlightPanel({ accountId, trip, route }: { accountId: string; tr
         </div>
         {error ? <p className="form-error" role="alert"><span aria-hidden="true">!</span>{error}</p> : null}
         <button className="primary-button compact" type="submit" disabled={saving}>{saving ? "서버에 저장 중…" : `${direction === "outbound" ? "가는 편" : "오는 편"} 확정 저장`}</button>
-      </form>
+      </form> : null}
 
       <div className="selected-flight-list">
         {flights.length ? flights.map((flight) => (
-          <article key={flight.id}>
-            <span>{flight.direction === "outbound" ? "가는 편" : "오는 편"} · {flight.departureDate}</span>
-            <strong>{flight.carrier} {flight.flightNumber}</strong>
-            <p>{flight.origin} {flight.departureTime} → {flight.destination} {flight.arrivalTime}</p>
-            {flight.priceKrw !== undefined ? <small>{flight.priceKrw.toLocaleString("ko-KR")}원</small> : null}
-            <div><button className="text-button" type="button" onClick={() => editFlight(flight)} disabled={saving}>수정</button><button className="text-button" type="button" onClick={() => void persist(flights.filter((item) => item.id !== flight.id))} disabled={saving}>삭제</button></div>
-          </article>
+          <ReservationCard
+            key={flight.id}
+            icon="✈"
+            tone="flight"
+            eyebrow={`${flight.direction === "outbound" ? "가는 편" : "오는 편"} · ${flight.departureDate}`}
+            title={`${flight.carrier} ${flight.flightNumber}`}
+            meta={`${flight.origin} ${flight.departureTime} → ${flight.destination} ${flight.arrivalTime}`}
+            detail={flight.priceKrw !== undefined ? <span>{flight.priceKrw.toLocaleString("ko-KR")}원</span> : undefined}
+            actions={<><button className="text-button" type="button" onClick={() => editFlight(flight)} disabled={saving}>수정</button><button className="text-button" type="button" onClick={() => void persist(flights.filter((item) => item.id !== flight.id))} disabled={saving}>삭제</button></>}
+          />
         )) : <p className="tool-empty">확정해 둔 항공편이 없습니다.</p>}
       </div>
     </section>
@@ -1134,32 +1154,63 @@ function ScheduleCardPreview({ item }: { item: ScheduleItem }) {
 
 function SortableScheduleCard({
   item,
+  order,
+  selected,
+  onSelect,
   onEdit,
   onDelete,
 }: {
   item: ScheduleItem;
+  order: number;
+  selected: boolean;
+  onSelect: (id: string) => void;
   onEdit: (item: ScheduleItem) => void;
   onDelete: (id: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id });
+  const [expanded, setExpanded] = useState(false);
+  const detailsId = useId();
   const style = { transform: CSS.Transform.toString(transform), transition };
+  const osmUrl = typeof item.latitude === "number" && typeof item.longitude === "number"
+    ? openStreetMapUrl(item.latitude, item.longitude)
+    : "";
 
   return (
-    <article ref={setNodeRef} style={style} className={`schedule-card ${isDragging ? "is-dragging" : ""}`}>
+    <article ref={setNodeRef} style={style} className={`schedule-card ${item.category === "숙소" ? "is-reservation-stay" : ""} ${selected ? "is-selected" : ""} ${isDragging ? "is-dragging" : ""}`}>
       <button className="drag-handle" type="button" aria-label={`${item.title} 일정 이동`} {...attributes} {...listeners}>⠿</button>
-      <span className={`category-icon category-${item.category}`} aria-hidden="true">{CATEGORY_ICON[item.category]}</span>
-      <div className="schedule-card-body">
+      <span className={`category-icon category-${item.category}`} aria-hidden="true"><strong>{order}</strong><small>{CATEGORY_ICON[item.category]}</small></span>
+      <button
+        className="schedule-card-body schedule-card-summary"
+        type="button"
+        aria-expanded={expanded}
+        aria-controls={detailsId}
+        onClick={() => { onSelect(item.id); setExpanded((current) => !current); }}
+      >
         <div className="schedule-card-heading">
           <span>{item.time || "시간 미정"} · {item.category}</span>
           <h5>{item.title}</h5>
         </div>
         {item.place ? <p>{item.place}</p> : null}
         {item.category === "숙소" && (item.checkInTime || item.checkOutTime) ? <p className="schedule-stay-time">{item.checkInTime ? `체크인 ${item.checkInTime}` : ""}{item.checkInTime && item.checkOutTime ? " · " : ""}{item.checkOutTime ? `체크아웃 ${item.checkOutTime}` : ""}</p> : null}
-      </div>
+        <span className="schedule-card-toggle" aria-hidden="true">{expanded ? "상세 접기 −" : "상세 보기 +"}</span>
+      </button>
       <div className="schedule-card-actions">
         <button className="icon-button edit-button" type="button" onClick={() => onEdit(item)} aria-label={`${item.title} 수정`} title="일정 수정">✎</button>
         <button className="icon-button" type="button" onClick={() => onDelete(item.id)} aria-label={`${item.title} 삭제`} title="일정 삭제">×</button>
       </div>
+      {expanded ? (
+        <div className="schedule-card-details" id={detailsId}>
+          {item.address ? <p><strong>주소</strong><span>{item.address}</span></p> : null}
+          {item.note ? <p><strong>메모</strong><span>{item.note}</span></p> : null}
+          {item.mapUrl || osmUrl ? (
+            <div className="schedule-card-map-actions">
+              {item.mapUrl ? <a href={item.mapUrl} target="_blank" rel="noreferrer">Google Maps에서 열기 <span aria-hidden="true">↗</span></a> : null}
+              {osmUrl ? <a href={osmUrl} target="_blank" rel="noreferrer">OpenStreetMap에서 위치 보기 <span aria-hidden="true">↗</span></a> : null}
+            </div>
+          ) : null}
+          {!item.address && !item.note && !item.mapUrl && !osmUrl ? <p className="schedule-card-no-details">저장된 장소 상세나 메모가 없습니다.</p> : null}
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -1169,6 +1220,8 @@ function ScheduleDay({
   index,
   items,
   collapsed,
+  selectedItemId,
+  onSelect,
   onToggle,
   onEdit,
   onDelete,
@@ -1177,6 +1230,8 @@ function ScheduleDay({
   index: number;
   items: ScheduleItem[];
   collapsed: boolean;
+  selectedItemId: string | null;
+  onSelect: (id: string) => void;
   onToggle: () => void;
   onEdit: (item: ScheduleItem) => void;
   onDelete: (id: string) => void;
@@ -1194,11 +1249,88 @@ function ScheduleDay({
       {!collapsed ? (
         <SortableContext items={items.map((item) => item.id)} strategy={verticalListSortingStrategy}>
           <div className="schedule-list">
-            {items.length ? items.map((item) => <SortableScheduleCard item={item} onEdit={onEdit} onDelete={onDelete} key={item.id} />) : (
+            {items.length ? items.map((item, itemIndex) => <SortableScheduleCard item={item} order={itemIndex + 1} selected={selectedItemId === item.id} onSelect={onSelect} onEdit={onEdit} onDelete={onDelete} key={item.id} />) : (
               <div className="schedule-empty">이 날짜에 첫 일정을 추가해 보세요.</div>
             )}
           </div>
         </SortableContext>
+      ) : null}
+    </section>
+  );
+}
+
+function ItineraryMap({
+  date,
+  items,
+  selectedItemId,
+  onSelect,
+}: {
+  date: string;
+  items: ScheduleItem[];
+  selectedItemId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const points = items.filter((item): item is ScheduleItem & { latitude: number; longitude: number } => (
+    typeof item.latitude === "number" && typeof item.longitude === "number"
+  ));
+  const selected = points.find((item) => item.id === selectedItemId) ?? points[0];
+
+  if (!points.length) {
+    return (
+      <section className="itinerary-map-card" aria-labelledby="itinerary-map-title">
+        <div className="itinerary-map-heading"><div><span className="step-label">MAP</span><h4 id="itinerary-map-title">{date} 일정 지도</h4></div></div>
+        <div className="itinerary-map-empty"><span aria-hidden="true">⌖</span><strong>지도에 표시할 장소가 없습니다</strong><p>일정 추가에서 장소 검색 결과를 선택하면 주소와 좌표가 저장되어 여기에 표시됩니다.</p></div>
+      </section>
+    );
+  }
+
+  const latitudes = points.map((item) => item.latitude);
+  const longitudes = points.map((item) => item.longitude);
+  const latitudePadding = Math.max((Math.max(...latitudes) - Math.min(...latitudes)) * 0.18, 0.008);
+  const longitudePadding = Math.max((Math.max(...longitudes) - Math.min(...longitudes)) * 0.18, 0.008);
+  const minLatitude = Math.min(...latitudes) - latitudePadding;
+  const maxLatitude = Math.max(...latitudes) + latitudePadding;
+  const minLongitude = Math.min(...longitudes) - longitudePadding;
+  const maxLongitude = Math.max(...longitudes) + longitudePadding;
+  const embedUrl = new URL("https://www.openstreetmap.org/export/embed.html");
+  embedUrl.searchParams.set("bbox", `${minLongitude},${minLatitude},${maxLongitude},${maxLatitude}`);
+  embedUrl.searchParams.set("layer", "mapnik");
+  const directionsUrl = googleMapsDirectionsUrl(points);
+
+  return (
+    <section className="itinerary-map-card" aria-labelledby="itinerary-map-title">
+      <div className="itinerary-map-heading">
+        <div><span className="step-label">MAP</span><h4 id="itinerary-map-title">{date} 일정 지도</h4></div>
+        <a href={directionsUrl} target="_blank" rel="noreferrer">Google Maps 하루 경로 <span aria-hidden="true">↗</span></a>
+      </div>
+      <div className="itinerary-map-frame">
+        <iframe src={embedUrl.toString()} title={`${date} OpenStreetMap 일정 지도`} loading="lazy" />
+        <div className="itinerary-map-pins" aria-label="지도 일정 위치">
+          {points.map((item, index) => {
+            const left = Math.min(94, Math.max(6, ((item.longitude - minLongitude) / (maxLongitude - minLongitude)) * 100));
+            const top = Math.min(94, Math.max(6, ((maxLatitude - item.latitude) / (maxLatitude - minLatitude)) * 100));
+            return (
+              <button
+                className={`itinerary-map-pin category-${item.category} ${selected?.id === item.id ? "is-selected" : ""}`}
+                style={{ left: `${left}%`, top: `${top}%` }}
+                type="button"
+                onClick={() => onSelect(item.id)}
+                aria-label={`${index + 1}번 ${item.title} 위치 선택`}
+                key={item.id}
+              >
+                {index + 1}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <a className="map-attribution" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">지도 © OpenStreetMap contributors</a>
+      {selected ? (
+        <div className="itinerary-map-selection" aria-live="polite">
+          <span className={`category-icon category-${selected.category}`} aria-hidden="true">{CATEGORY_ICON[selected.category]}</span>
+          <div><span>{selected.time || "시간 미정"} · {selected.category}</span><strong>{selected.title}</strong><small>{selected.address || selected.place}</small></div>
+          {selected.mapUrl ? <a href={selected.mapUrl} target="_blank" rel="noreferrer">길찾기 ↗</a> : null}
+        </div>
       ) : null}
     </section>
   );
@@ -1233,6 +1365,10 @@ function ItineraryPlanner({ accountId, trip }: { accountId: string; trip: TripDr
   const [error, setError] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [mobileView, setMobileView] = useState<"timeline" | "map">("timeline");
+  const [mapDate, setMapDate] = useState(dates[0]);
+  const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(null);
   const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set());
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -1402,6 +1538,9 @@ function ItineraryPlanner({ accountId, trip }: { accountId: string; trip: TripDr
       void persist([...items, item]);
     }
     resetScheduleForm();
+    setFormOpen(false);
+    setMapDate(selectedDate);
+    setSelectedScheduleId(item.id);
     setCollapsedDays((current) => {
       const next = new Set(current);
       next.delete(selectedDate);
@@ -1412,10 +1551,14 @@ function ItineraryPlanner({ accountId, trip }: { accountId: string; trip: TripDr
   function deleteSchedule(id: string) {
     if (savingRef.current) return;
     if (editingId === id) cancelEdit();
+    if (selectedScheduleId === id) setSelectedScheduleId(null);
     void persist(items.filter((item) => item.id !== id));
   }
 
   function editSchedule(item: ScheduleItem) {
+    setFormOpen(true);
+    setMapDate(item.date);
+    setSelectedScheduleId(item.id);
     setEditingId(item.id);
     setSelectedDate(item.date);
     setTime(item.time);
@@ -1447,6 +1590,14 @@ function ItineraryPlanner({ accountId, trip }: { accountId: string; trip: TripDr
 
   function cancelEdit() {
     resetScheduleForm();
+    setFormOpen(false);
+  }
+
+  function openScheduleForm() {
+    resetScheduleForm();
+    setSelectedDate(mapDate);
+    setFormOpen(true);
+    window.requestAnimationFrame(() => document.querySelector<HTMLFormElement>(".schedule-form")?.scrollIntoView({ block: "start" }));
   }
 
   function orderedItems(dayItems: Record<string, ScheduleItem[]>) {
@@ -1490,7 +1641,14 @@ function ItineraryPlanner({ accountId, trip }: { accountId: string; trip: TripDr
   return (
     <div className="itinerary-layout">
       {syncMessage ? <p className="sync-message" role="status">{syncMessage}</p> : null}
-      <form className="schedule-form" onSubmit={saveSchedule} noValidate>
+      <div className="itinerary-toolbar">
+        <div className="itinerary-view-toggle" role="group" aria-label="일정 보기 방식">
+          <button type="button" className={mobileView === "timeline" ? "is-active" : ""} aria-pressed={mobileView === "timeline"} onClick={() => setMobileView("timeline")}>타임라인</button>
+          <button type="button" className={mobileView === "map" ? "is-active" : ""} aria-pressed={mobileView === "map"} onClick={() => setMobileView("map")}>지도</button>
+        </div>
+        <button className="primary-button compact" type="button" onClick={openScheduleForm}>새 일정 추가 <span aria-hidden="true">＋</span></button>
+      </div>
+      {formOpen ? <form className="schedule-form" onSubmit={saveSchedule} noValidate>
         <div className="schedule-form-heading">
           <span className="step-label">{editingId ? "EDIT PLAN" : "NEW PLAN"}</span>
           <h4>{editingId ? "일정 수정" : "일정 추가"}</h4>
@@ -1565,12 +1723,14 @@ function ItineraryPlanner({ accountId, trip }: { accountId: string; trip: TripDr
         </div>
         {error ? <p className="form-error" role="alert"><span aria-hidden="true">!</span>{error}</p> : null}
         <div className="schedule-form-actions">
-          {editingId ? <button className="secondary-button compact" type="button" onClick={cancelEdit}>수정 취소</button> : null}
+          <button className="secondary-button compact" type="button" onClick={cancelEdit}>{editingId ? "수정 취소" : "입력 닫기"}</button>
           <button className="primary-button compact" type="submit" disabled={saving}>{saving ? "서버에 저장 중…" : editingId ? "수정 저장" : "일정 추가"} <span aria-hidden="true">{editingId ? "✓" : "＋"}</span></button>
         </div>
-      </form>
+      </form> : null}
 
-      <DndContext
+      <div className="itinerary-content" data-mobile-view={mobileView}>
+        <div className="itinerary-timeline">
+        <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
         onDragStart={handleDragStart}
@@ -1584,6 +1744,8 @@ function ItineraryPlanner({ accountId, trip }: { accountId: string; trip: TripDr
               index={index}
               items={items.filter((item) => item.date === date)}
               collapsed={collapsedDays.has(date)}
+              selectedItemId={selectedScheduleId}
+              onSelect={(id) => { setSelectedScheduleId(id); setMapDate(date); }}
               onToggle={() => setCollapsedDays((current) => {
                 const next = new Set(current);
                 if (next.has(date)) next.delete(date); else next.add(date);
@@ -1599,6 +1761,120 @@ function ItineraryPlanner({ accountId, trip }: { accountId: string; trip: TripDr
           {activeItemId ? <ScheduleCardPreview item={items.find((item) => item.id === activeItemId)!} /> : null}
         </DragOverlay>
       </DndContext>
+        </div>
+        <aside className="itinerary-map-pane">
+          <div className="itinerary-map-dates" aria-label="지도 날짜 선택">
+            {dates.map((date, index) => <button type="button" className={mapDate === date ? "is-active" : ""} aria-pressed={mapDate === date} onClick={() => { setMapDate(date); setSelectedScheduleId(items.find((item) => item.date === date)?.id ?? null); }} key={date}>{formatDay(date, index).day}</button>)}
+          </div>
+          <ItineraryMap date={mapDate} items={items.filter((item) => item.date === mapDate)} selectedItemId={selectedScheduleId} onSelect={setSelectedScheduleId} />
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+type DayModeData = {
+  schedule: ScheduleItem[];
+  flights: SelectedFlight[];
+  trains: TrainPlan[];
+  localInfo: LocalInfoData;
+};
+
+function localCalendarDate(date = new Date()) {
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 10);
+}
+
+function sectionData(value: unknown) {
+  if (!value || typeof value !== "object") return undefined;
+  const section = (value as { section?: unknown }).section;
+  if (!section || typeof section !== "object") return undefined;
+  return (section as { data?: unknown }).data;
+}
+
+function TripDayMode({ trip, onBack }: { trip: TripDraft; onBack: () => void }) {
+  const [data, setData] = useState<DayModeData | null>(null);
+  const [error, setError] = useState("");
+  const today = localCalendarDate();
+  const isLive = today >= trip.startDate && today <= trip.endDate;
+  const targetDate = isLive ? today : trip.startDate;
+
+  useEffect(() => {
+    let disposed = false;
+    async function loadDayMode() {
+      setError("");
+      try {
+        const [scheduleResponse, flightsResponse, trainsResponse, localInfoResponse] = await Promise.all([
+          fetch("/api/trips/current/sections/schedule", { cache: "no-store" }),
+          fetch("/api/trips/current/sections/selected-flights", { cache: "no-store" }),
+          fetch("/api/trips/current/sections/train", { cache: "no-store" }),
+          fetch("/api/trips/current/sections/local-info", { cache: "no-store" }),
+        ]);
+        if (![scheduleResponse, flightsResponse, trainsResponse, localInfoResponse].every((response) => response.ok)) throw new Error();
+        const [schedulePayload, flightsPayload, trainsPayload, localInfoPayload] = await Promise.all([
+          scheduleResponse.json(), flightsResponse.json(), trainsResponse.json(), localInfoResponse.json(),
+        ]);
+        const schedule = normalizeScheduleItems(sectionData(schedulePayload) ?? []) ?? [];
+        const flights = normalizeSelectedFlights(sectionData(flightsPayload) ?? []) ?? [];
+        const trains = normalizeTrainPlans(sectionData(trainsPayload) ?? []) ?? [];
+        const localInfo = normalizeLocalInfoData(sectionData(localInfoPayload) ?? { videos: [], weather: null }) ?? { videos: [], weather: null };
+        if (!disposed) setData({ schedule, flights, trains, localInfo });
+      } catch {
+        if (!disposed) setError("여행 중 화면에 필요한 정보를 불러오지 못했습니다.");
+      }
+    }
+    void loadDayMode();
+    return () => { disposed = true; };
+  }, []);
+
+  if (error) return <div className="day-mode-error"><p role="alert">{error}</p><button className="secondary-button compact" type="button" onClick={onBack}>계획 화면으로 돌아가기</button></div>;
+  if (!data) return <p className="sync-message" role="status">오늘의 여행 정보를 불러오는 중입니다…</p>;
+
+  const currentMinutes = new Date().getHours() * 60 + new Date().getMinutes();
+  const ordered = [...data.schedule].sort((left, right) => `${left.date} ${left.time || "99:99"}`.localeCompare(`${right.date} ${right.time || "99:99"}`));
+  const nextItem = ordered.find((item) => item.date > targetDate || (item.date === targetDate && (!isLive || !item.time || Number(item.time.slice(0, 2)) * 60 + Number(item.time.slice(3, 5)) >= currentMinutes)));
+  const dayItems = ordered.filter((item) => item.date === targetDate);
+  const dayFlights = data.flights.filter((flight) => flight.departureDate === targetDate);
+  const dayTrains = data.trains.filter((train) => train.date === targetDate);
+  const dayStays = dayItems.filter((item) => item.category === "숙소");
+  const weather = data.localInfo.weather;
+  const weatherIndex = weather?.weather.daily.time.indexOf(targetDate) ?? -1;
+
+  return (
+    <div className="trip-day-mode">
+      <div className="trip-day-hero">
+        <div className="trip-day-heading">
+          <div><span className="eyebrow">{isLive ? "TODAY ON YOUR TRIP" : "TRIP MODE PREVIEW"}</span><h3>{isLive ? "오늘의 다음 일정" : `${targetDate} 여행 화면`}</h3></div>
+          <button className="secondary-button compact" type="button" onClick={onBack}>계획 편집으로 돌아가기</button>
+        </div>
+        {nextItem ? (
+          <div className="next-schedule-card">
+            <span>{nextItem.date} · {nextItem.time || "시간 미정"} · {nextItem.category}</span>
+            <strong>{nextItem.title}</strong>
+            <p>{nextItem.address || nextItem.place || "장소 미정"}</p>
+            {nextItem.mapUrl ? <a className="trip-move-button" href={nextItem.mapUrl} target="_blank" rel="noreferrer">Google Maps로 이동하기 <span aria-hidden="true">→</span></a> : <span className="trip-move-button is-disabled" aria-disabled="true">장소를 추가하면 이동 버튼이 활성화됩니다</span>}
+          </div>
+        ) : <div className="next-schedule-card is-empty"><strong>등록된 다음 일정이 없습니다</strong><p>계획 화면에서 일정과 장소를 추가해 주세요.</p></div>}
+        {weather && weatherIndex >= 0 ? <div className="trip-day-weather"><span>저장된 예보</span><strong>{Math.round(weather.weather.daily.temperature_2m_max[weatherIndex])}° / {Math.round(weather.weather.daily.temperature_2m_min[weatherIndex])}°</strong><small>강수 {weather.weather.daily.precipitation_probability_max[weatherIndex] ?? 0}%</small></div> : null}
+      </div>
+
+      <section className="trip-day-section" aria-labelledby="day-timeline-title">
+        <div className="trip-day-section-heading"><span className="step-label">TIMELINE</span><h4 id="day-timeline-title">{targetDate} 일정</h4></div>
+        <div className="day-readonly-timeline">
+          {dayItems.length ? dayItems.map((item, index) => <article key={item.id}><span>{index + 1}</span><div><small>{item.time || "시간 미정"} · {item.category}</small><strong>{item.title}</strong><p>{item.place}</p></div>{item.mapUrl ? <a href={item.mapUrl} target="_blank" rel="noreferrer" aria-label={`${item.title} Google Maps에서 열기`}>이동 ↗</a> : null}</article>) : <p className="tool-empty">이 날짜에 등록된 일정이 없습니다.</p>}
+        </div>
+      </section>
+
+      {dayFlights.length || dayTrains.length || dayStays.length ? (
+        <section className="trip-day-section" aria-labelledby="day-reservations-title">
+          <div className="trip-day-section-heading"><span className="step-label">RESERVATIONS</span><h4 id="day-reservations-title">오늘 필요한 예약</h4></div>
+          <div className="reservation-list">
+            {dayFlights.map((flight) => <ReservationCard key={flight.id} icon="✈" tone="flight" eyebrow={`${flight.direction === "outbound" ? "가는 편" : "오는 편"} · ${flight.departureDate}`} title={`${flight.carrier} ${flight.flightNumber}`} meta={`${flight.origin} ${flight.departureTime} → ${flight.destination} ${flight.arrivalTime}`} />)}
+            {dayTrains.map((train) => <ReservationCard key={train.id} icon="▤" tone="train" eyebrow={`열차 · ${train.date} ${train.time}`} title={`${train.origin} → ${train.destination}`} meta="저장된 NAVITIME 검색 조건" actions={train.searchUrl ? <a className="train-result-link" href={train.searchUrl} target="_blank" rel="noreferrer">다시 검색</a> : undefined} />)}
+            {dayStays.map((stay) => <ReservationCard key={stay.id} icon="⌂" tone="stay" eyebrow={`숙소 · ${stay.date}`} title={stay.title} meta={`${stay.checkInTime ? `체크인 ${stay.checkInTime}` : ""}${stay.checkInTime && stay.checkOutTime ? " · " : ""}${stay.checkOutTime ? `체크아웃 ${stay.checkOutTime}` : ""}` || stay.place} actions={stay.mapUrl ? <a className="train-result-link" href={stay.mapUrl} target="_blank" rel="noreferrer">지도 열기</a> : undefined} />)}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }
@@ -1606,6 +1882,10 @@ function ItineraryPlanner({ accountId, trip }: { accountId: string; trip: TripDr
 export function TravelWorkspace({ accountId, trip }: { accountId: string; trip: TripDraft }) {
   const [tab, setTab] = useState<"route" | "schedule" | "local" | "train">("route");
   const [mobileSection, setMobileSection] = useState<"trip" | "route" | "schedule" | "local" | "train">("route");
+  const [dayMode, setDayMode] = useState(() => {
+    const today = localCalendarDate();
+    return today >= trip.startDate && today <= trip.endDate;
+  });
 
   function changeTab(nextTab: "route" | "schedule" | "local" | "train") {
     setTab(nextTab);
@@ -1627,18 +1907,19 @@ export function TravelWorkspace({ accountId, trip }: { accountId: string; trip: 
       <section className="workspace-card" id="travel-workspace" aria-labelledby="workspace-title">
         <div className="workspace-heading">
           <div><span className="eyebrow">BUILD YOUR TRIP</span><h2 id="workspace-title">여행 계획</h2></div>
-          <span className="workspace-trip-name">{trip.name}</span>
+          <div className="workspace-heading-actions"><span className="workspace-trip-name">{trip.name}</span><button className="day-mode-toggle" type="button" onClick={() => setDayMode((current) => !current)}>{dayMode ? "계획 편집" : "여행 화면"}<span aria-hidden="true">{dayMode ? "✎" : "→"}</span></button></div>
         </div>
-        <div className="workspace-tabs" role="tablist" aria-label="여행 계획 메뉴">
+        {dayMode ? <TripDayMode trip={trip} onBack={() => setDayMode(false)} /> : <><div className="workspace-tabs" role="tablist" aria-label="여행 계획 메뉴">
           <button role="tab" aria-selected={tab === "route"} aria-controls="workspace-panel" className={tab === "route" ? "is-active" : ""} onClick={() => changeTab("route")}>항공</button>
           <button role="tab" aria-selected={tab === "schedule"} aria-controls="workspace-panel" className={tab === "schedule" ? "is-active" : ""} onClick={() => changeTab("schedule")}>일정</button>
           <button role="tab" aria-selected={tab === "local"} aria-controls="workspace-panel" className={tab === "local" ? "is-active" : ""} onClick={() => changeTab("local")}>현지</button>
           <button role="tab" aria-selected={tab === "train"} aria-controls="workspace-panel" className={tab === "train" ? "is-active" : ""} onClick={() => changeTab("train")}>열차</button>
         </div>
         <div id="workspace-panel" role="tabpanel">{tab === "route" ? <RoutePlanner accountId={accountId} trip={trip} /> : tab === "schedule" ? <ItineraryPlanner accountId={accountId} trip={trip} /> : tab === "local" ? <LocalInfoTools accountId={accountId} trip={trip} /> : <ShinkansenTools accountId={accountId} trip={trip} />}</div>
+        </>}
       </section>
 
-      <nav className="mobile-nav" aria-label="주요 메뉴">
+      {!dayMode ? <nav className="mobile-nav" aria-label="주요 메뉴">
         <button className={`mobile-nav-item ${mobileSection === "trip" ? "is-active" : ""}`} type="button" aria-current={mobileSection === "trip" ? "page" : undefined} onClick={() => navigateMobile("trip")}>
           <span aria-hidden="true">⌂</span>여행
         </button>
@@ -1654,7 +1935,7 @@ export function TravelWorkspace({ accountId, trip }: { accountId: string; trip: 
         <button className={`mobile-nav-item ${mobileSection === "train" ? "is-active" : ""}`} type="button" aria-current={mobileSection === "train" ? "page" : undefined} onClick={() => navigateMobile("train")}>
           <span aria-hidden="true">▤</span>열차
         </button>
-      </nav>
+      </nav> : null}
     </>
   );
 }

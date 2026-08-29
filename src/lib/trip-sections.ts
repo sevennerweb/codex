@@ -94,6 +94,27 @@ export function googleMapsSearchUrl(latitude: number, longitude: number) {
   return url.toString();
 }
 
+export function openStreetMapUrl(latitude: number, longitude: number) {
+  const url = new URL("https://www.openstreetmap.org/");
+  url.searchParams.set("mlat", String(latitude));
+  url.searchParams.set("mlon", String(longitude));
+  url.hash = `map=16/${latitude}/${longitude}`;
+  return url.toString();
+}
+
+export function googleMapsDirectionsUrl(points: Array<{ latitude: number; longitude: number }>) {
+  if (!points.length) return "";
+  if (points.length === 1) return googleMapsSearchUrl(points[0].latitude, points[0].longitude);
+  const url = new URL("https://www.google.com/maps/dir/");
+  url.searchParams.set("api", "1");
+  url.searchParams.set("origin", `${points[0].latitude},${points[0].longitude}`);
+  url.searchParams.set("destination", `${points.at(-1)!.latitude},${points.at(-1)!.longitude}`);
+  if (points.length > 2) {
+    url.searchParams.set("waypoints", points.slice(1, -1).map((point) => `${point.latitude},${point.longitude}`).join("|"));
+  }
+  return url.toString();
+}
+
 export function normalizeGoogleMapsUrl(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return "";
