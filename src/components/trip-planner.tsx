@@ -2,6 +2,13 @@
 
 import { FormEvent, useEffect, useId, useState } from "react";
 import { TravelWorkspace } from "@/components/travel-workspace";
+import {
+  normalizeLocalInfoData,
+  normalizeRoutePlan,
+  normalizeScheduleItems,
+  normalizeSelectedFlights,
+  normalizeTrainPlans,
+} from "@/lib/trip-sections";
 
 export type TripDraft = {
   name: string;
@@ -13,6 +20,12 @@ export type TripDraft = {
 
 type TripResponse = { trip?: unknown; error?: string };
 type SaveResult = { status: "saved"; trip: TripDraft } | { status: "conflict"; trip: TripDraft } | { status: "error"; message: string };
+type ReadinessData = {
+  flightLabel: string;
+  scheduleLabel: string;
+  localLabel: string;
+  trainLabel: string;
+};
 
 const LEGACY_STORAGE_KEY = "travel-planner:first-trip";
 const EMPTY_TRIP: TripDraft = {
@@ -22,6 +35,89 @@ const EMPTY_TRIP: TripDraft = {
   confirmed: false,
   version: 0,
 };
+
+function storedSectionData(value: unknown) {
+  if (!value || typeof value !== "object") return null;
+  const payload = value as Record<string, unknown>;
+  if (!payload.section || typeof payload.section !== "object") return null;
+  return (payload.section as Record<string, unknown>).data;
+}
+
+async function fetchTripReadiness(): Promise<ReadinessData> {
+  const paths = ["route", "selected-flights", "schedule", "local-info", "train"];
+  const responses = await Promise.all(paths.map((path) => fetch(`/api/trips/current/sections/${path}`, { cache: "no-store" })));
+  if (responses.some((response) => !response.ok)) throw new Error("readiness");
+  const payloads = await Promise.all(responses.map((response) => response.json() as Promise<unknown>));
+  const route = normalizeRoutePlan(storedSectionData(payloads[0]));
+  const flights = normalizeSelectedFlights(storedSectionData(payloads[1]) ?? []) ?? [];
+  const schedule = normalizeScheduleItems(storedSectionData(payloads[2]) ?? []) ?? [];
+  const localInfo = normalizeLocalInfoData(storedSectionData(payloads[3]) ?? { videos: [], weather: null });
+  const trains = normalizeTrainPlans(storedSectionData(payloads[4]) ?? []) ?? [];
+
+  return {
+    flightLabel: flights.length ? `${flights.length}편 저장` : route?.confirmed ? "구간 확정" : "미확정",
+    scheduleLabel: schedule.length ? `${schedule.length}개 일정` : "일정 없음",
+    localLabel: localInfo?.weather ? "날씨 저장" : localInfo?.videos.length ? `영상 ${localInfo.videos.length}개` : "미설정",
+    trainLabel: trains.length ? `${trains.length}개 계획` : "계획 없음",
+  };
+}
+
+function TripReadiness() {
+  const [data, setData] = useState<ReadinessData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  async function refresh() {
+    setLoading(true);
+    setError(false);
+    try {
+      setData(await fetchTripReadiness());
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    let disposed = false;
+    async function load() {
+      try {
+        const nextData = await fetchTripReadiness();
+        if (!disposed) setData(nextData);
+      } catch {
+        if (!disposed) setError(true);
+      } finally {
+        if (!disposed) setLoading(false);
+      }
+    }
+    void load();
+    return () => { disposed = true; };
+  }, []);
+
+  const items = data ? [
+    { icon: "✈", label: "항공", value: data.flightLabel },
+    { icon: "◷", label: "일정", value: data.scheduleLabel },
+    { icon: "⌖", label: "현지", value: data.localLabel },
+    { icon: "▤", label: "열차", value: data.trainLabel },
+  ] : [];
+
+  return (
+    <section className="trip-readiness" aria-label="여행 준비 현황" aria-busy={loading}>
+      <div className="trip-readiness-heading">
+        <div><span>TRIP STATUS</span><strong>준비 현황</strong></div>
+        <button type="button" onClick={() => void refresh()} disabled={loading} aria-label="여행 준비 현황 새로고침">↻</button>
+      </div>
+      {error ? <p className="trip-readiness-error" role="alert">준비 현황을 불러오지 못했습니다.</p> : loading && !data ? (
+        <div className="trip-readiness-loading" aria-label="여행 준비 현황 불러오는 중"><span /><span /><span /><span /></div>
+      ) : (
+        <div className="trip-readiness-list">
+          {items.map((item) => <div key={item.label}><span aria-hidden="true">{item.icon}</span><p><small>{item.label}</small><strong>{item.value}</strong></p></div>)}
+        </div>
+      )}
+    </section>
+  );
+}
 
 function normalizeTrip(value: unknown): TripDraft | null {
   if (!value || typeof value !== "object") return null;
@@ -209,8 +305,8 @@ export function TripPlanner({ accountId }: { accountId: string }) {
   }
 
   return (
-    <div className="planner-stack">
-      <section className="planner-card" aria-labelledby="planner-title">
+    <div className={`planner-stack ${trip.confirmed ? "has-confirmed-trip" : ""}`}>
+      <section className={`planner-card ${trip.confirmed ? "is-confirmed" : ""}`} aria-labelledby="planner-title">
         <div className="card-heading">
           <div><span className="step-label">STEP 01</span><h2 id="planner-title">여행 기본 정보</h2></div>
           <span className={`status-badge ${trip.confirmed ? "is-confirmed" : ""}`}><span aria-hidden="true">{trip.confirmed ? "✓" : "○"}</span>{trip.confirmed ? "확정" : "작성 중"}</span>
@@ -219,18 +315,21 @@ export function TripPlanner({ accountId }: { accountId: string }) {
         {syncMessage ? <p className="sync-message" role="status">{syncMessage}</p> : null}
 
         {trip.confirmed ? (
-          <div className="confirmed-summary" aria-live="polite">
-            <div className="summary-icon" aria-hidden="true">✓</div>
-            <p className="summary-kicker">여행 일정이 확정되었습니다</p>
-            <h3>{trip.name}</h3>
-            <div className="date-summary">
-              <div><span>출발</span><strong>{formatKoreanDate(trip.startDate)}</strong></div>
-              <span className="date-arrow" aria-hidden="true">→</span>
-              <div><span>도착</span><strong>{formatKoreanDate(trip.endDate)}</strong></div>
+          <>
+            <div className="confirmed-summary" aria-live="polite">
+              <div className="summary-icon" aria-hidden="true">✓</div>
+              <p className="summary-kicker">여행 일정이 확정되었습니다</p>
+              <h3>{trip.name}</h3>
+              <div className="date-summary">
+                <div><span>출발</span><strong>{formatKoreanDate(trip.startDate)}</strong></div>
+                <span className="date-arrow" aria-hidden="true">→</span>
+                <div><span>도착</span><strong>{formatKoreanDate(trip.endDate)}</strong></div>
+              </div>
+              <p className="trip-length">총 {getTripDays(trip.startDate, trip.endDate)}일의 여행</p>
+              <button className="secondary-button" type="button" onClick={() => void editTrip()} disabled={saving}><span aria-hidden="true">✎</span>{saving ? "서버에 저장 중…" : "일정 수정하기"}</button>
             </div>
-            <p className="trip-length">총 {getTripDays(trip.startDate, trip.endDate)}일의 여행</p>
-            <button className="secondary-button" type="button" onClick={() => void editTrip()} disabled={saving}><span aria-hidden="true">✎</span>{saving ? "서버에 저장 중…" : "일정 수정하기"}</button>
-          </div>
+            <TripReadiness key={`${trip.name}:${trip.startDate}:${trip.endDate}`} />
+          </>
         ) : (
           <form onSubmit={(event) => void confirmTrip(event)} noValidate>
             <div className="field-group">

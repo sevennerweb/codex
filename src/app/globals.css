@@ -112,6 +112,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -124,6 +125,7 @@ a {
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
+select:focus-visible,
 textarea:focus-visible {
   outline: 3px solid var(--focus-ring);
   outline-offset: 3px;
@@ -288,6 +290,16 @@ textarea:focus-visible {
   align-items: start;
 }
 
+.page-grid:has(.has-confirmed-trip) {
+  margin-top: 28px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+}
+
+.page-grid:has(.has-confirmed-trip) .intro-panel {
+  display: none;
+}
+
 .eyebrow,
 .step-label {
   color: var(--primary);
@@ -378,6 +390,7 @@ textarea:focus-visible {
   .intro-panel { position: static; }
   .planner-stack { display: contents; }
   .planner-stack > .planner-card { grid-column: 2; }
+  .planner-stack.has-confirmed-trip > .planner-card { grid-column: 1 / -1; }
   .planner-stack > .workspace-card { grid-column: 1 / -1; }
 }
 
@@ -438,11 +451,12 @@ textarea:focus-visible {
   font-weight: 750;
 }
 
-.field-group input {
+.field-group input,
+.field-group select {
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  min-height: 52px;
+  min-height: 56px;
   padding: 0 15px;
   border: 1px solid var(--line);
   border-radius: 13px;
@@ -451,11 +465,13 @@ textarea:focus-visible {
   transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 
-.field-group input:hover {
+.field-group input:hover,
+.field-group select:hover {
   border-color: var(--line-strong);
 }
 
-.field-group input:focus {
+.field-group input:focus,
+.field-group select:focus {
   border-color: var(--primary);
   box-shadow: 0 0 0 4px var(--focus-soft);
 }
@@ -490,7 +506,7 @@ textarea:focus-visible {
 }
 
 .date-divider {
-  height: 52px;
+  height: 56px;
   display: grid;
   place-items: center;
   color: var(--ink-soft);
@@ -509,7 +525,7 @@ textarea:focus-visible {
 .date-input-frame input[type="date"] {
   display: block;
   width: 100%;
-  height: 52px;
+  height: 56px;
   min-width: 0;
   max-width: 100%;
   inline-size: 100%;
@@ -517,7 +533,7 @@ textarea:focus-visible {
   padding-top: 0;
   padding-right: 46px;
   padding-bottom: 0;
-  line-height: 50px;
+  line-height: 54px;
   -webkit-appearance: none;
   appearance: none;
 }
@@ -632,28 +648,40 @@ textarea:focus-visible {
 }
 
 .confirmed-summary {
-  min-height: 405px;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "icon kicker action"
+    "icon title action"
+    "dates dates length";
   align-items: center;
-  justify-content: center;
-  text-align: center;
+  gap: 3px 16px;
+}
+
+.planner-card.is-confirmed {
+  min-height: 0;
+  padding: 24px 28px;
+}
+
+.planner-card.is-confirmed .card-heading {
+  margin-bottom: 18px;
 }
 
 .summary-icon {
-  width: 54px;
-  height: 54px;
+  grid-area: icon;
+  width: 46px;
+  height: 46px;
   display: grid;
   place-items: center;
-  margin-bottom: 19px;
-  border-radius: 18px;
+  border-radius: 15px;
   background: var(--primary-soft);
   color: var(--primary);
-  font-size: 23px;
+  font-size: 20px;
   font-weight: 800;
 }
 
 .summary-kicker {
+  grid-area: kicker;
   margin: 0;
   color: var(--primary);
   font-size: 13px;
@@ -661,14 +689,17 @@ textarea:focus-visible {
 }
 
 .confirmed-summary h3 {
-  margin: 8px 0 29px;
-  font-size: clamp(28px, 5vw, 36px);
+  grid-area: title;
+  margin: 2px 0 0;
+  font-size: clamp(23px, 3vw, 30px);
   letter-spacing: -0.04em;
 }
 
 .date-summary {
-  width: min(360px, 100%);
-  padding: 18px 20px;
+  grid-area: dates;
+  width: min(520px, 100%);
+  margin-top: 16px;
+  padding: 14px 18px;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
@@ -695,10 +726,65 @@ textarea:focus-visible {
 .date-arrow { color: var(--primary) !important; }
 
 .trip-length {
-  margin: 14px 0 25px;
+  grid-area: length;
+  margin: 16px 0 0;
   color: var(--ink-soft);
   font-size: 13px;
+  text-align: right;
+  white-space: nowrap;
 }
+
+.confirmed-summary .secondary-button {
+  grid-area: action;
+  min-height: 44px;
+  padding-inline: 16px;
+}
+
+.trip-readiness {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.trip-readiness-heading {
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.trip-readiness-heading > div { display: flex; align-items: baseline; gap: 8px; }
+.trip-readiness-heading span { color: var(--primary); font-size: 9px; font-weight: 800; letter-spacing: 0.12em; }
+.trip-readiness-heading strong { font-size: 13px; }
+.trip-readiness-heading button { width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-strong); color: var(--primary-dark); cursor: pointer; }
+.trip-readiness-heading button:disabled { cursor: wait; opacity: 0.5; }
+
+.trip-readiness-list,
+.trip-readiness-loading {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.trip-readiness-list > div {
+  min-width: 0;
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  border-radius: 12px;
+  background: var(--surface-muted);
+}
+
+.trip-readiness-list > div > span { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 9px; background: var(--primary-soft); color: var(--primary-dark); font-size: 12px; }
+.trip-readiness-list p { min-width: 0; margin: 0; display: grid; gap: 2px; }
+.trip-readiness-list small,.trip-readiness-list strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trip-readiness-list small { color: var(--ink-soft); font-size: 9px; }
+.trip-readiness-list strong { font-size: 11px; }
+.trip-readiness-loading span { height: 50px; border-radius: 12px; background: linear-gradient(90deg, var(--surface-subtle) 25%, var(--surface-muted) 50%, var(--surface-subtle) 75%); background-size: 200% 100%; animation: loading 1.2s infinite; }
+.trip-readiness-error { margin: 0; padding: 10px 12px; border-radius: 10px; background: #fff1ed; color: var(--danger); font-size: 11px; }
 
 .secondary-button {
   padding: 0 22px;
@@ -796,6 +882,10 @@ textarea:focus-visible {
   gap: 4px;
   border-radius: 14px;
   background: var(--surface-subtle);
+}
+
+.workspace-active-section {
+  display: none;
 }
 
 .workspace-tabs button {
@@ -1034,11 +1124,11 @@ textarea:focus-visible {
 .flight-search-form label > span:first-child { font-size: 12px; font-weight: 720; }
 .flight-search-form select {
   width: 100%;
-  height: 58px;
-  min-height: 58px;
-  padding: 0 42px 0 16px;
+  height: 56px;
+  min-height: 56px;
+  padding: 0 42px 0 15px;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 13px;
   background: white;
   color: var(--ink);
   font-size: 16px;
@@ -1046,7 +1136,7 @@ textarea:focus-visible {
 }
 
 .nonstop-option {
-  min-height: 58px;
+  min-height: 56px;
   padding: 9px 14px;
   display: flex;
   align-items: center;
@@ -1106,7 +1196,7 @@ textarea:focus-visible {
 .flight-link-form { margin-top: 18px; display: grid; gap: 8px; }
 .flight-link-form > label { font-size: 12px; font-weight: 730; }
 .flight-link-form > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
-.flight-link-form input { min-width: 0; min-height: 46px; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; background: white; color: var(--ink); }
+.flight-link-form input { min-width: 0; min-height: 56px; padding: 0 15px; border: 1px solid var(--line); border-radius: 13px; background: white; color: var(--ink); }
 .flight-link-form input:focus { border-color: var(--primary); box-shadow: 0 0 0 4px var(--focus-soft); outline: 0; }
 
 .saved-flight-search {
@@ -1221,7 +1311,7 @@ textarea:focus-visible {
 
 .schedule-form-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(100px, 0.7fr) minmax(100px, 0.7fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -1316,8 +1406,8 @@ textarea:focus-visible {
 .field-group select {
   width: 100%;
   min-width: 0;
-  min-height: 52px;
-  padding: 0 38px 0 14px;
+  min-height: 56px;
+  padding: 0 42px 0 15px;
   border: 1px solid var(--line);
   border-radius: 13px;
   background: var(--surface-strong);
@@ -1557,7 +1647,7 @@ textarea:focus-visible {
 .text-button { border: 0; background: transparent; color: var(--danger); font-size: 12px; cursor: pointer; }
 
 .city-search { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
-.city-search input { min-width: 0; min-height: 50px; padding: 0 14px; border: 1px solid var(--line); border-radius: 13px; }
+.city-search input { min-width: 0; min-height: 56px; padding: 0 15px; border: 1px solid var(--line); border-radius: 13px; }
 .city-search button { min-width: 68px; border: 0; border-radius: 13px; background: var(--primary); color: white; font-weight: 750; cursor: pointer; }
 .place-results { margin-top: 12px; display: grid; gap: 7px; }
 .place-results button { min-height: 52px; padding: 9px 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--line); border-radius: 12px; background: white; color: var(--ink); text-align: left; cursor: pointer; }
@@ -1578,12 +1668,12 @@ textarea:focus-visible {
 .weather-icon { color: var(--primary); font-size: 21px; }
 
 .train-form { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.train-station-field { grid-column: span 2; }
+.train-station-field { grid-column: auto; }
 .train-station-field select {
-  height: 60px;
-  min-height: 60px;
-  padding: 0 44px 0 16px;
-  border-radius: 14px;
+  height: 56px;
+  min-height: 56px;
+  padding: 0 42px 0 15px;
+  border-radius: 13px;
   font-size: 16px;
   line-height: normal;
 }
@@ -1666,13 +1756,43 @@ textarea:focus-visible {
   .intro-panel h1 { margin: 12px 0; font-size: 38px; }
   .intro-panel p { font-size: 15px; line-height: 1.65; }
   .planner-card { min-height: 520px; padding: 25px 20px; border-radius: 23px; }
+  .planner-card.is-confirmed { min-height: 0; padding: 20px 18px; }
+  .planner-card.is-confirmed .card-heading { margin-bottom: 16px; }
+  .confirmed-summary {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      "icon kicker"
+      "icon title"
+      "dates dates"
+      "length length"
+      "action action";
+    gap: 3px 12px;
+  }
+  .summary-icon { width: 42px; height: 42px; border-radius: 13px; }
+  .confirmed-summary h3 { font-size: 23px; }
+  .date-summary { width: 100%; margin-top: 14px; padding: 13px 10px; gap: 7px; }
+  .date-summary strong { font-size: 13px; }
+  .trip-length { margin-top: 10px; text-align: left; }
+  .confirmed-summary .secondary-button { width: 100%; margin-top: 13px; }
+  .trip-readiness-list,
+  .trip-readiness-loading { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .card-heading { margin-bottom: 30px; }
   .card-heading h2 { font-size: 23px; }
   .date-grid { grid-template-columns: minmax(0, 1fr); gap: 14px; }
   .date-divider { display: none; }
   .primary-button { min-height: 56px; }
   .workspace-card { padding: 24px 18px; border-radius: 23px; }
-  .workspace-tabs { grid-template-columns: repeat(2, 1fr); }
+  .workspace-tabs { display: none; }
+  .workspace-active-section {
+    margin: 22px 0 18px;
+    padding-bottom: 12px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--line);
+  }
+  .workspace-active-section span { color: var(--ink-soft); font-size: 10px; font-weight: 750; letter-spacing: 0.08em; }
+  .workspace-active-section strong { color: var(--primary-dark); font-size: 16px; }
   .workspace-heading { align-items: flex-start; }
   .workspace-trip-name { display: none; }
   .workspace-heading-actions { align-items: flex-end; }
@@ -1707,8 +1827,8 @@ textarea:focus-visible {
   .selected-flight-source .secondary-button { width: 100%; margin-left: 0; }
   .flight-search-form { grid-template-columns: minmax(0, 1fr); }
   .flight-search-form > label:first-child { gap: 10px; }
-  .flight-search-form select { height: 64px; min-height: 64px; }
-  .nonstop-option { min-height: 64px; padding-block: 11px; }
+  .flight-search-form select { height: 56px; min-height: 56px; }
+  .nonstop-option { min-height: 56px; padding-block: 9px; }
   .flight-search-form .primary-button { width: 100%; }
   .flight-search-links.is-split { grid-template-columns: minmax(0, 1fr); }
   .flight-search-links article { align-items: stretch; flex-direction: column; }
@@ -1739,7 +1859,7 @@ textarea:focus-visible {
   .train-form { grid-template-columns: minmax(0, 1fr); }
   .train-station-field,.train-form .form-error,.train-provider-note,.train-actions { grid-column: auto; }
   .train-station-field { gap: 10px; }
-  .train-station-field select { height: 64px; min-height: 64px; }
+  .train-station-field select { height: 56px; min-height: 56px; }
   .train-actions { align-items: stretch; flex-direction: column; }
   .train-actions .primary-button,.secondary-link { width: 100%; justify-content: center; }
   .drag-handle,

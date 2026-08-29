@@ -1909,7 +1909,12 @@ export function TravelWorkspace({ accountId, trip }: { accountId: string; trip: 
           <div><span className="eyebrow">BUILD YOUR TRIP</span><h2 id="workspace-title">여행 계획</h2></div>
           <div className="workspace-heading-actions"><span className="workspace-trip-name">{trip.name}</span><button className="day-mode-toggle" type="button" onClick={() => setDayMode((current) => !current)}>{dayMode ? "계획 편집" : "여행 화면"}<span aria-hidden="true">{dayMode ? "✎" : "→"}</span></button></div>
         </div>
-        {dayMode ? <TripDayMode trip={trip} onBack={() => setDayMode(false)} /> : <><div className="workspace-tabs" role="tablist" aria-label="여행 계획 메뉴">
+        {dayMode ? <TripDayMode trip={trip} onBack={() => setDayMode(false)} /> : <>
+          <div className="workspace-active-section" aria-live="polite">
+            <span>현재 메뉴</span>
+            <strong>{tab === "route" ? "항공" : tab === "schedule" ? "일정" : tab === "local" ? "현지" : "열차"}</strong>
+          </div>
+          <div className="workspace-tabs" role="tablist" aria-label="여행 계획 메뉴">
           <button role="tab" aria-selected={tab === "route"} aria-controls="workspace-panel" className={tab === "route" ? "is-active" : ""} onClick={() => changeTab("route")}>항공</button>
           <button role="tab" aria-selected={tab === "schedule"} aria-controls="workspace-panel" className={tab === "schedule" ? "is-active" : ""} onClick={() => changeTab("schedule")}>일정</button>
           <button role="tab" aria-selected={tab === "local"} aria-controls="workspace-panel" className={tab === "local" ? "is-active" : ""} onClick={() => changeTab("local")}>현지</button>
